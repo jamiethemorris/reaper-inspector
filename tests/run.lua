@@ -855,6 +855,64 @@ test('80gray: every installed edition gets the theme\'s own rows, sizes and colo
   local other=assert(Theme.resolve(env.cache..'/changed',env));eq(other.layout,'generic');eq(other.gray80,nil);eq(other.send_row_height,nil)
 end)
 
+test('theFRXST: name on top, racks inside the strip, bottom-anchored panel; the meter gives way on narrow strips', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  h.GetOS=function() return 'macOS-arm64' end
+  local Theme=dofile('inspector/theme.lua')
+  local home=os.getenv('HOME')..'/Library/Application Support/REAPER/ColorThemes/'
+  local env={cache=h.cache..'/frxst',mkdir=function(p) os.execute('mkdir -p "'..p..'"') end}
+  local theme=assert(Theme.resolve(home..'theFRXST 3.three.ReaperThemeZip',env))
+  eq(theme.layout,'frxst');eq(theme.row_height,23);eq(theme.send_row_height,27)
+  local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),theme,{output_strip=false})
+  local function at(w,hgt) g.ext_retina=2;g.w=w*2;g.h=hgt*2;v:frame() end
+  -- The theme's own 124 pt strip: each control at the script's rectangle, 1 pt lower as the mixer shows it.
+  at(124,800);eq(#v.bitmaps.missing,0)
+  local k=v.hits;local function Y(y) return 800-343+y end
+  local function box(hit,x,y,w,hh) eq(hit.x,x);eq(hit.y,y);eq(hit.w,w);eq(hit.h,hh) end
+  box(k.FX,7,Y(59),25,25);box(k.I_FXEN,30,Y(61),20,21);box(k.IO,94,Y(59),22,25)
+  box(k.I_RECINPUT,7,Y(84),80,25);box(k.INFX,87,Y(84),30,25);box(k.I_RECMON,9,Y(109),106,25)
+  box(k.D_PAN,13,Y(169),36,21);box(k.I_AUTOMODE,7,Y(226),25,25);box(k.B_PHASE,32,Y(226),22,25)
+  box(k.B_MUTE,13,Y(262),36,25);box(k.I_SOLO,13,Y(287),36,25);box(k.I_RECARM,13,Y(312),36,25)
+  box(k.D_VOL,52,Y(145),22,191);box(k.meter,77,Y(145)+1,36,189)
+  eq(k.D_WIDTH,nil)                                                   -- shown, but only live in stereo pan mode
+  eq(k.fx1.y,23);eq(k.fx1.x,5);eq(k.fxadd2.y-k.fx1.y,23);eq(k.output.h,27);assert(k.output.y+27<=Y(51))
+  eq(k.name.y,0);assert(k.name.y+k.name.h<=k.fx1.y)
+  -- Narrower and wider panels: left column and fader stay put, right-hand controls follow the edge,
+  -- and the meter takes the difference until there is no room for it.
+  for _,w in ipairs({86,100,124,172}) do
+    at(w,800);k=v.hits;local d=w-124
+    eq(k.IO.x,94+d);eq(k.INFX.x,87+d);eq(k.I_RECINPUT.w,80+d);eq(k.I_RECMON.w,106+d);eq(k.D_VOL.x,52);eq(k.B_MUTE.x,13)
+    eq(k.meter~=nil,38+d>=10);eq(v.layout.meter,38+d>=10)
+    if k.meter then eq(k.meter.w,36+d);assert(k.meter.x+k.meter.w<=w-4) end
+    local order={}
+    for _,id in ipairs({'name','FX','I_FXEN','IO','I_RECINPUT','INFX','I_RECMON','D_PAN','I_AUTOMODE','B_PHASE','B_MUTE','I_SOLO','I_RECARM','D_VOL'}) do order[#order+1]=assert(k[id],id) end
+    if k.meter then order[#order+1]=k.meter end
+    for i,a in ipairs(order) do
+      assert(a.x>=0 and a.x+a.w<=w+.01 and a.y+a.h<=800.01,a.id..' leaves the strip at '..w)
+      for j=i+1,#order do local b=order[j]
+        -- Two pairs of the theme's own rectangles overlap by 2 pt.
+        local own=(a.id=='FX' and b.id=='I_FXEN') or (a.id=='B_PHASE' and b.id=='D_VOL')
+        assert(own or a.x+a.w<=b.x or b.x+b.w<=a.x or a.y+a.h<=b.y or b.y+b.h<=a.y,a.id..' overlaps '..b.id..' at '..w)
+      end
+    end
+  end
+  h.a.values.I_PANMODE=5;at(124,800);box(v.hits.D_WIDTH,13,Y(194),36,21)
+  h.a.values.I_PANMODE=6;at(124,800);assert(v.hits.D_DUALPANL and v.hits.D_DUALPANR);eq(v.hits.D_PAN,nil)
+  h.a.values.I_PANMODE=3
+  -- Master as the output strip: its own rows, mono switch, no input rows.
+  v.options.output_strip=true;at(248,800);k=v.hits
+  box(k['out:MONO'],124+12,Y(138),35,25);box(k['out:D_VOL'],124+49,Y(88),22,249);box(k['out:B_MUTE'],124+12,Y(262),36,25)
+  assert(k['out:I_SOLO'] and k['out:IO'] and k['out:FX']);eq(k['out:I_RECINPUT'],nil);eq(k['out:I_RECMON'],nil);eq(k['out:I_RECARM'],nil);eq(k['out:name'],nil)
+  local before=#h.writes
+  local hit=k.I_SOLO;g.mouse_x=(hit.x+5)*2;g.mouse_y=(hit.y+5)*2;g.mouse_cap=1;v:frame();g.mouse_cap=0;v:frame()
+  eq(#h.writes,before+1);eq(h.writes[#h.writes][2],'I_SOLO')
+  -- Recognised by its script: one changed rectangle falls back to the generic strip.
+  local changed,n=theme.rtconfig:gsub('%[13 262 36 25 0 1 0 1%]','[13 262 38 25 0 1 0 1]')
+  assert(n>0);os.execute('mkdir -p "'..env.cache..'/changed"')
+  local f=assert(io.open(env.cache..'/changed/rtconfig.txt','w'));f:write(changed);f:close()
+  local other=assert(Theme.resolve(env.cache..'/changed',env));eq(other.layout,'generic');eq(other.send_row_height,nil)
+end)
+
 test('Theme Adjuster values are read live only while following REAPER\'s theme', function()
   local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
   local params={{'LayoutA-verboseMcp',1},{'selDot',0}}

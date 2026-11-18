@@ -840,6 +840,139 @@ function M:lower80(s,W,H,c)
     image('mcp_diagram_dot',W/2-2.5,H-dia+math.floor(dia/2)-2,5,5)
   end
 end
+-- theFRXST strip: name bar on top, racks inside the strip, and the theme's rounded control panel
+-- anchored to the bottom (rtconfig rectangles, tall form). The theme's strip is a fixed 124 pt; here the
+-- meter and the right-hand controls give up or take the difference. `c` carries what the racks computed.
+function M:lowerfx(s,W,H,c)
+  local m,bm=self.model,self.bitmaps
+  local d=W-124
+  local function Y(v) return H-343+v end                  -- the script's bottom-anchored rows (1 pt lower in the mixer)
+  self.layout={T=c.T,S=Y(145),B=Y(336),L=H-c.T,meter=38+d>=10}
+  local function image(name,x,y,w,h) return bm and bm:draw(name,0,x+self.ox,y,w,h,self.scale,true) end
+  local function art(name,state,x,y,w,h)
+    if not bm then return false end
+    for _,prefix in ipairs({'mcp_','track_','tcp_'}) do
+      if bm:draw(prefix..name,state,x+self.ox,y,w,h,self.scale,true) then return true end
+    end
+    return false
+  end
+  local function button(id,name,x,y,w,h,action,menu)
+    local hover=inside({x=x,y=y,w=w,h=h},self.mx,self.my)
+    local state=hover and ((self.g.mouse_cap&1)~=0 and 2 or 1) or 0
+    if not art(name,state,x,y,w,h) then
+      local p=PLAIN['mcp_'..name] or {''}
+      self:rect(x+1,y+1,w-2,h-2,{62,62,62});self:text(p[1],x,y,w,h,p[2] or {150,150,150},'main',1)
+    end
+    return self:hit(id,x,y,w,h,action,menu)
+  end
+  local grey={160,160,160}
+  local sel=c.selected
+
+  -- Name bar
+  -- (the mixer shows this bar 3 pt higher than the script's numbers)
+  if c.custom then self:rect(4,3,12,12,c.base) end
+  image('custom_mcp_label',3,2,15,15)
+  self:text(s.name,21,-1,100+d,20,(sel or c.custom) and {255,255,255} or {214,214,214},'header',0)
+  self:rect(28,9,90+d,3,{255,255,255,38})
+  if not s.master then self:hit('name',17,0,107+d,19).double=function() self:rename(s) end end
+
+  -- Panel: colour line, body, bottom shadow, corners
+  local line=c.custom and c.base or {0,0,0}              -- the track's colour; nothing for an uncoloured track
+  self:rect(4,Y(334),116+d,9,sel and {38,38,38} or {27,27,27})
+  self:rect(4,Y(54),116+d,287,sel and {64,64,64} or {38,38,38})
+  self:rect(4,Y(51),116+d,4,line)
+  local v2=sel and '2' or ''
+  image('custom_mcp_paneltopleft'..v2,3,Y(50),7,7);image('custom_mcp_paneltopright'..v2,114+d,Y(50),7,7)
+  image('custom_mcp_panelbotleft'..v2,3,Y(338),7,6);image('custom_mcp_panelbotright'..v2,114+d,Y(338),7,6)
+
+  -- Top rows
+  local fxon=s.I_FXEN~=0;local mx=s.master and -1 or 0     -- the master's left column sits 1 pt further left
+  button('FX',#s.fx==0 and 'fx_empty' or fxon and 'fx_norm' or 'fx_dis',7+mx,Y(59),25,25,
+    function() if #s.fx==0 then self:add_fx(s) else m:fx_chain(s) end end,function() self:fx_menu(s) end)
+  button('I_FXEN',#s.fx==0 and 'fxempty_v' or fxon and 'fxon_v' or 'fxoff_v',30+mx,Y(61),20,21,function() m:toggle(s,'I_FXEN') end)
+  local io='io'..(#s.sends>0 and '_s' or '')..((s.receives or 0)>0 and '_r' or '')..(s.B_MAINSEND==0 and '_dis' or '')
+  button('IO',io,94+d-mx,Y(59),22,25,function() self:show_routing(s) end,function() self:send_menu(s) end)
+  local function readout(text,x,y,w,h,bg)
+    if bg then image(bg,x,y,w,h) end
+    self:text(text,x,y,w,h,grey,'main',1)
+  end
+  local voltext=gaintext(s.D_VOL)
+  if s.master then
+    readout(voltext,6,Y(87),45,21,'mcp_vol_label')
+    button('MONO',s.mono and 'mono' or 'stereo',12,Y(138),35,25,function() m:master_mono(s) end)
+  else
+    art('recinput',0,7,Y(84),80+d,25)
+    self:text(self:input_label(s.I_RECINPUT),14,Y(86),80+d-24,23,{157,157,157},'main',0)
+    self:hit('I_RECINPUT',7,Y(84),80+d,25,function() self:input_menu(s) end)
+    button('INFX',(s.recfx or 0)>0 and 'fx_in_norm' or 'fx_in_empty',87+d,Y(84),30,25,function() m:open_input_fx(s) end)
+    button('I_RECMON',s.I_RECMON==2 and 'monitor_auto' or s.I_RECMON==1 and 'monitor_on' or 'monitor_off',9,Y(109),106+d,25,function() m:toggle(s,'I_RECMON') end)
+    readout(voltext,7,Y(144),44,21,'mcp_vol_label')
+  end
+
+  -- Pan and width: a text readout over a bar-shaped frame stack
+  local kx=13+mx;local ky=s.master and -1 or 0              -- the master's bars sit 1 pt higher too
+  local function bar(key,stack,y,labely,label,live,fixed)
+    y,labely=y+ky,labely+ky
+    local value=fixed or clamp(s[key] or 0,-1,1)
+    if not (bm and (bm:stack('mcp_'..stack,(value+1)/2,kx+self.ox,y,36,21,self.scale) or bm:stack('tcp_'..stack,(value+1)/2,kx+self.ox,y,36,21,self.scale))) then
+      self:rect(kx,y+15,36,3,{0,0,0});self:rect(kx+17+value*16,y+13,2,7,{110,170,170})
+    end
+    self:text(label,kx-1,labely+5,38,14,grey,'main',1)
+    if live then self:pan_hit(s,key,kx,y,36,21,36) end
+  end
+  local function wtext(v) return ('%dW'):format(math.floor(v*100+.5)) end
+  if s.I_PANMODE==6 then
+    bar('D_DUALPANL','pan_knob_stack',Y(169),Y(167),pan_label(s.D_DUALPANL),true)
+    bar('D_DUALPANR','wid_knob_stack',Y(194),Y(193),pan_label(s.D_DUALPANR),true)
+  else
+    bar('D_PAN','pan_knob_stack',Y(169),Y(167),pan_label(s.D_PAN),true)
+    -- The width bar is always shown; it only does something in stereo pan mode.
+    if s.I_PANMODE==5 then bar('D_WIDTH','wid_knob_stack',Y(194),Y(193),wtext(s.D_WIDTH),true)
+    else bar('D_WIDTH','wid_knob_stack',Y(194),Y(193),'100W',false,1) end
+  end
+
+  -- Left column
+  local mode=math.floor(s.I_AUTOMODE)
+  button('I_AUTOMODE',(ENV[mode] or 'mcp_env'):gsub('^mcp_',''),s.master and 18 or 7,Y(226),25,25,function()
+    local items={}
+    for i,label in ipairs(AUTOMODES) do items[#items+1]={label,function() m:set(s,'I_AUTOMODE',i-1) end,checked=mode==i-1} end
+    self:menu(items)
+  end)
+  if not s.master then button('B_PHASE',s.B_PHASE~=0 and 'phase_inv' or 'phase_norm',32,Y(226),22,25,function() m:toggle(s,'B_PHASE') end) end
+  -- The unmuted button is blank art: a track prints its number on it, the master an M.
+  button('B_MUTE',s.B_MUTE~=0 and 'mute_on' or 'mute_off',kx,Y(262),36,25,function() m:toggle(s,'B_MUTE') end)
+  if s.B_MUTE~=0 then -- the lit art carries its own M
+  elseif not s.master then self:text(('%d'):format(s.IP_TRACKNUMBER),kx,Y(264),36,20,grey,'header',1)
+  else self:text('M',kx,Y(264),36,20,grey,'header',1) end
+  if s.master then image('mixer_menu',kx,Y(312),36,25) end -- the mixer's Menu button; not a control here
+  button('I_SOLO',s.I_SOLO~=0 and 'solo_on' or 'solo_off',kx,Y(287),36,25,function() m:toggle(s,'I_SOLO') end)
+  if not s.master then
+    button('I_RECARM',s.I_RECARM~=0 and 'recarm_on' or 'recarm_off',13,Y(312),36,25,function() m:toggle(s,'I_RECARM') end)
+  end
+
+  -- Fader and meter
+  local fx,fy0,fh=52,Y(145),191
+  local mxx,mw=76,38+d
+  if s.master then fx,fy0,fh,mxx,mw=49,Y(88),249,71,45+d end
+  image('mcp_volbg',fx,fy0,22,fh)
+  local thumb=bm and bm:get('mcp_volthumb',true)
+  local th=thumb and thumb.h/thumb.scale or 26
+  local ftop,fbottom=fy0+th/2,fy0+fh-th/2
+  local fy=fbottom-self.mapping.to_position(s.D_VOL)*(fbottom-ftop)
+  if thumb then
+    local tw=thumb.w/thumb.scale
+    bm:blit(thumb,thumb.x,thumb.y,thumb.w,thumb.h,self:pxx(fx+11-tw/2),self:px(fy-th/2),self:px(tw),self:px(th),true)
+  else self:rect(fx+2,fy-12,18,24,{110,110,112}) end
+  local hit=self:hit('D_VOL',fx,fy0,22,fh)
+  hit.kind,hit.token,hit.top,hit.bottom,hit.fader_y='D_VOL',s,ftop,fbottom,fy
+  if mw>=10 then
+    self:rect(mxx,fy0,mw,fh,{0,0,0})
+    local roomy=mw>=24                                    -- a squeezed meter keeps its bars and drops its text
+    local muted=s.B_MUTE~=0 and roomy                     -- a muted track's readout is replaced by the theme's M tile
+    self:meter(s,{x=mxx+1,y=fy0+1,w=mw-2,h=fh-2,labels=roomy,readout=roomy and not muted,readout_color={255,255,255},scale_color={150,150,150}},c.colors)
+    if muted then image('meter_mute',mxx+(mw-16)/2,fy0,16,16) end
+  end
+end
 -- One mixer strip, drawn in its own coordinates (self.ox places it in the panel).
 function M:strip(s,W,H)
   local bm=self.bitmaps
@@ -851,6 +984,7 @@ function M:strip(s,W,H)
   local v2=self.theme and self.theme.layout=='reapertips2'
   local v3=self.theme and self.theme.layout=='default7'
   local g80=self.theme and self.theme.layout=='gray80'
+  local frx=self.theme and self.theme.layout=='frxst'
   local stock6=self.theme and self.theme.stock6
   local compact6=stock6 and self.theme.compact6
   local base=v2 and {130,130,130} or {152,152,152}
@@ -869,7 +1003,7 @@ function M:strip(s,W,H)
   local ntext=custom and tips and name_color(base) or {235,235,235}
   -- Vertical sections, bottom-anchored like a mixer strip. The theme hides the input row on short strips.
   -- v1.95 needs a taller strip before it shows its full input panel; the racks keep at least ~200 pt.
-  local L=v2 and clamp(H-200,300,430) or v3 and clamp(H-200,260,340) or g80 and clamp(H-200,260,450) or clamp(H-57,300,stock6 and 446 or 380)
+  local L=v2 and clamp(H-200,300,430) or v3 and clamp(H-200,260,340) or g80 and clamp(H-200,260,450) or frx and math.min(292,H-72) or clamp(H-57,300,stock6 and 446 or 380)
   local showInFX=stock6 and L>=400
   local inh=showInFX and 54 or L>=350 and 42 or 22
   local label_h=stock6 and self.theme.label_h or 26
@@ -883,23 +1017,33 @@ function M:strip(s,W,H)
   -- FX and send racks
   local row=self.theme and self.theme.row_height or 17
   local selected=not s.owner
-  local themed=bm and (stock6 or v3 or g80 or bm.full_artwork)
+  local themed=bm and (stock6 or v3 or g80 or frx or bm.full_artwork)
   local srow=self.theme and self.theme.send_row_height or row -- 80gray's send rows are taller than its inserts
   if themed and not s.master and self.r.IsTrackSelected then selected=self.r.IsTrackSelected(s.track) end
   -- What REAPER puts under translucent mixer art: the track's colour, else the theme's panel colour.
   local under=custom and base or colors[selected and 'col_seltrack' or 'col_seltrack2'] or {73,75,78}
   self:rect(0,0,W,T+1,bm and bm.full_artwork and under or v3 and {38,38,38} or {61,61,61})
-  if themed then
+  -- theFRXST keeps its racks inside the strip: below the name bar, inset from the edges.
+  local Y0,RX,fullW=1,0,W
+  if frx then
+    Y0,RX=23,5
+    -- The strip is the track's colour seen through the theme's translucent background art,
+    -- plus a 10% wash of that colour over the racks of the selected track.
+    self:rect(0,0,W,H,under)
+    if bm and not (selected and bm:draw('mcp_bgsel',0,self.ox,-3,W,H+3,self.scale,true)) then bm:draw('mcp_bg',0,self.ox,-3,W,H+3,self.scale,true) end
+    if selected and custom then self:rect(4,23,W-8,H-115,{base[1],base[2],base[3],25}) end
+    W=W-6;self.ox=self.ox+RX;self.mx=self.mx-RX
+  elseif themed then
     local function backing(name) return bm:draw(name,0,self.ox,0,W,T+1,self.scale,true) end
     if not (selected and backing('mcp_extmixbgsel')) then backing('mcp_extmixbg') end
   end
-  local n=math.max(0,math.floor((T-6)/row))
+  local n=math.max(0,math.floor((T-5-Y0)/row))
   local sendrows=n>=4 and math.max(1,math.floor(n*.25+.5)) or n>=2 and 1 or 0
   -- The last send-rack row is pinned to the track's own output (master/parent send); the master has none.
   local outrow=not s.master and self.r.GetMasterTrack~=nil
   if outrow and n>=3 then sendrows=math.max(2,sendrows) end
   local fxrows=n-sendrows
-  if srow~=row then fxrows=math.max(0,math.floor((T-6-sendrows*srow)/row)) end
+  if srow~=row then fxrows=math.max(0,math.floor((T-5-Y0-(frx and 3 or 0)-sendrows*srow)/row)) end -- theFRXST's racks end above its panel
   if outrow and sendrows>0 then sendrows=sendrows-1 else outrow=false end
   if s.master then sendrows=0;fxrows=n end -- the master strip shows inserts only
   -- A full rack scrolls one row past its last entry, so an empty slot to add into is always reachable.
@@ -918,9 +1062,9 @@ function M:strip(s,W,H)
   -- Each list has its own background image under its cells (PhaseLab darkens only the inserts).
   -- Stock art is only a divider where the Inspector already draws one, so it is left out there.
   local listbg=bm and (compact6 or bm.full_artwork)
-  if listbg and fxrows>0 then bm:draw('mcp_fxlist_bg',0,self.ox,1,W,fxrows*row,self.scale,true) end
+  if listbg and fxrows>0 then bm:draw('mcp_fxlist_bg',0,self.ox,Y0,W,fxrows*row,self.scale,true) end
   for i=1,fxrows do
-    local fx=s.fx[i+self.fx_offset];local y=1+(i-1)*row
+    local fx=s.fx[i+self.fx_offset];local y=Y0+(i-1)*row
     local art=fx and (fx.offline and 'mcp_fxlist_off' or fx.enabled and 'mcp_fxlist_norm' or 'mcp_fxlist_byp') or 'mcp_fxlist_empty'
     local hover=inside({x=0,y=y,w=W,h=row},self.mx,self.my)
     self:sprite(art,hover and 1 or 0,-1,y,W-2,row)
@@ -941,9 +1085,9 @@ function M:strip(s,W,H)
       self:hit('fxadd'..i,0,y,W,row,function() self:add_fx(s) end,function() self:fx_menu(s) end)
     end
   end
-  self.fx_box={x=0,y=1,w=W,h=fxrows*row,rows=fxrows}
-  scrollbar('fx_bar',#s.fx,fxrows,self.fx_offset,1,row)
-  local sep=1+fxrows*row+.5
+  self.fx_box={x=RX,y=Y0,w=W,h=fxrows*row,rows=fxrows}
+  scrollbar('fx_bar',#s.fx,fxrows,self.fx_offset,Y0,row)
+  local sep=Y0+fxrows*row+.5
   if n>0 and not s.master then self:rect(0,sep,W,1,{255,255,255,26}) end
   local sy=sep+3.5
   if listbg and sendrows>0 then bm:draw('mcp_sendlist_bg',0,self.ox,sy,W,sendrows*srow,self.scale,true) end
@@ -978,7 +1122,7 @@ function M:strip(s,W,H)
       self:hit('sendadd'..i,0,y,W,srow,function() self:show_routing(s) end,function() self:send_menu(s) end)
     end
   end
-  self.send_box={x=0,y=sy,w=W,h=sendrows*srow,rows=sendrows}
+  self.send_box={x=RX,y=sy,w=W,h=sendrows*srow,rows=sendrows}
   if outrow then -- set apart from the sends: its own divider, centred neutral text, never scrolls
     local y=sy+sendrows*srow+2;local on=s.B_MAINSEND~=0
     self:rect(0,y-1.5,W,1,{255,255,255,40})
@@ -991,6 +1135,8 @@ function M:strip(s,W,H)
   end
   scrollbar('send_bar',#s.sends,sendrows,self.send_offset,sy,srow)
 
+  if frx then W=fullW;self.ox=self.ox-RX;self.mx=self.mx+RX end
+  if frx then return self:lowerfx(s,W,H,{T=T,base=base,custom=custom,colors=colors,selected=selected}) end
   if v3 then return self:lower3(s,W,H,{T=T,L=L,base=base,custom=custom,colors=colors}) end
   if g80 then return self:lower80(s,W,H,{T=T,base=base,custom=custom,colors=colors,selected=selected}) end
   if v2 then return self:lower2(s,W,H,{T=T,L=L,B=B,base=base,custom=custom,colors=colors,meter=meter}) end
@@ -1202,7 +1348,7 @@ function M:meter(s,m,colors)
   local armed=s.I_RECARM~=0
   for d=6,(m.labels==false) and 0 or 54,12 do -- the theme prints bare numbers between two small ticks
     local y=ydb(-d);local label=tostring(d)
-    local c=y>lit and {0,0,0,170} or armed and {255,64,0} or {255,255,255,60}
+    local c=y>lit and {0,0,0,170} or armed and {255,64,0} or m.scale_color or {255,255,255,60}
     self.g.setfont(4);local tw=self.g.measurestr(label)/self.scale
     local cx=m.x+m.w/2
     self:text(label,m.x,y-7,m.w,14,c,'bold',1)
@@ -1212,9 +1358,9 @@ function M:meter(s,m,colors)
     end
   end
   local over=self.peak>1
-  local text=self.peak<=0 and '-inf' or ('%.1f'):format(db(self.peak))
+  local text=db(self.peak)<=-150 and '-inf' or ('%.1f'):format(db(self.peak)) -- REAPER's meters bottom out at -150 dB
   local rc=m.readout_color or {100,100,100}
-  local function peaktext(v) return v<=0 and '-inf' or ('%.1f'):format(db(v)) end
+  local function peaktext(v) return db(v)<=-150 and '-inf' or ('%.1f'):format(db(v)) end
   local ry=m.y+(m.readout_y or 1.5)
   self.g.setfont(4)
   local function fits(t,w) return self.g.measurestr(t)/self.scale<=w end

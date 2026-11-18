@@ -13,7 +13,7 @@ for name in ([[mcp_recarm_off mcp_recarm_on mcp_monitor_off mcp_monitor_on mcp_m
   track_fx_norm track_fx_empty track_fx_dis track_fxon_h track_fxoff_h track_fxempty_h
   track_env track_env_read track_env_touch track_env_write track_env_latch track_env_preview
   track_monitor_off track_monitor_on track_monitor_auto
-  mcp_mono mcp_stereo mixer_menu
+  mcp_mono mcp_stereo mixer_menu mcp_solodefeat_on mcp_recarm_auto mcp_recarm_auto_on
   track_io track_io_dis track_io_r track_io_r_dis track_io_s track_io_s_dis track_io_s_r track_io_s_r_dis]]):gmatch('%S+') do horizontal[name]=true end
 local vertical={}
 local borrow={}
@@ -107,6 +107,16 @@ function M:knob_frame(name,position,cx,cy,scale,fit)
   if size<=0 then return false end
   local x,y=math.floor(cx*scale-size/2+.5),math.floor(cy*scale-size/2+.5)
   self:blit(a,a.x,a.y+frame*a.w,a.w,a.w,x,y,size,size,fit~=nil and size~=a.w)
+  return true
+end
+-- A stack whose frames are as wide as the control and `h` points tall (theFRXST's bar-shaped pan and width).
+function M:stack(name,position,x,y,w,h,scale)
+  local a=self:get(name,true);if not a then return false end
+  local fh=math.floor(h*a.scale+.5);local frames=fh>0 and a.h//fh or 0
+  if frames<2 then return false end
+  local frame=math.floor(math.max(0,math.min(1,position))*(frames-1)+.5)
+  local function px(v) return math.floor(v*scale+.5) end
+  self:blit(a,a.x,a.y+frame*fh,a.w,fh,px(x),px(y),px(x+w)-px(x),px(y+h)-px(y),true)
   return true
 end
 -- Draw a sprite into the logical control rectangle x,y,w,h (nil w/h = the art's own size).

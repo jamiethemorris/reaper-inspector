@@ -53,6 +53,22 @@ local function gray80_of(cfg)
   t.send_row=tonumber(script:match(' set mcp%.sendlist%.font %[%d+ (%d+) '))
   return t
 end
+-- theFRXST: a fixed 124 pt strip with the name on top and a rounded control panel anchored to the bottom.
+local function frxst_of(cfg)
+  local script=' '..cfg:gsub(';[^\r\n]*',''):gsub('\\%s*[\r\n]',' '):gsub('%s+',' ')..' '
+  local function has(s) return script:find(' '..s..' ',1,true) end
+  return has('set mcp.size [124 344]') and has('set mcp.extmixer.position + low_marg2 [4 26 118 26 0 0 0 1]')
+    and has('set mcp.fx h<373 [0] [7 59 25 25 0 1 0 1]') and has('set mcp.io h<373 [0] [94 59 22 25 0 1 0 1]')
+    and has('set mcp.recinput h<350 [0] [7 84 80 25 0 1 0 1]') and has('set mcp.recmon h<324 [0] [9 109 106 25 0 1 0 1]')
+    and has('set mcp.pan h<252 [0] [13 169 36 21 0 1 0 1]') and has('set mcp.width h<226 [0] [13 194 36 21 0 1 0 1]')
+    and has('set mcp.mute h<168 [0] [13 262 36 25 0 1 0 1]') and has('set mcp.recarm h<132 [0] [13 312 36 25 0 1 0 1]')
+    and has('set mcp.volume h<132 [4 318 70 25 0 1 0 1] h<290 [52 90 22 246 0 0 0 1] [52 145 22 191 0 1 0 1]')
+    and has('set mcp.meter h<290 [76 90 38 247 0 0 0 1] [76 145 38 191 0 1 0 1]')
+    and has('set mcp.custom.panelbg h<375 [4 83 116 258 0 0 0 1] [4 54 116 287 0 1 0 1]')
+    and has('set mcp.custom.panelbg.color !track_selected [0 0 0 0 38 38 38 255] ?track_selected [0 0 0 0 64 64 64 255]')
+    and has('set master.mcp.volume h<148 [4 318 50 25 0 1 0 1] h<347 [49 90 22 246 0 0 0 1] [49 88 22 249 0 1 0 1]')
+    and has('set master.mcp.mono h<290 [0] [12 138 35 25 0 1 0 1]') and true or false
+end
 local function layout_of(cfg)
   if cfg:sub(1,600):find('Reapertips',1,true) then
     -- v1.95 redesigned the mixer strip (new sizes and artwork, a sidebar option); v1.90 and earlier share the first layout.
@@ -100,6 +116,7 @@ local function layout_of(cfg)
       return 'generic',nil,nil,nil,nil,true
     end
   end
+  if not cfg:find('macro%s+drawMcp') and cfg:find('custom_mcp_paneltopleft',1,true) and frxst_of(cfg) then return 'frxst' end
   if not cfg:find('macro%s+drawMcp') and cfg:find('set mcp_narrow',1,true) then
     local gray=gray80_of(cfg)
     if gray then return 'gray80',nil,nil,nil,nil,nil,gray end
@@ -124,6 +141,7 @@ local function finish(t, cfg, inis)
   colors.col_seltrack, colors.col_seltrack2 = named('col_seltrack'), named('col_seltrack2')
   t.row_height = math.max(12,math.min(26,row)); t.rtconfig = cfg; t.colors = colors
   t.layout,t.stock6,t.recarm_y,t.label_h,t.compact6,t.full_art,t.gray80 = layout_of(cfg)
+  if t.layout=='frxst' then t.send_row_height = math.max(12,math.min(30,tonumber(cfg:match('set%s+mcp%.sendlist%.font%s+%[%s*%d+%s+(%d+)')) or 27)) end
   if t.gray80 and t.gray80.send_row then t.send_row_height = math.max(12,math.min(26,t.gray80.send_row)) end
   -- Stock mixer faces are declared in the theme's serialized LOGFONT. Only the first
   -- null-terminated face is needed; ignore trailing bytes left from previous settings.
