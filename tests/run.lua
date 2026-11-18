@@ -435,6 +435,34 @@ test('cache folder names are plain ASCII whatever the archive is called, and a f
   os.setlocale(previous,'ctype');assert(ok,err)
 end)
 
+test('Reapertips v1.95 gets its own strip: every control from its own artwork at native size', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  h.GetOS=function() return 'macOS-arm64' end
+  local Theme=dofile('inspector/theme.lua')
+  local home=os.getenv('HOME')..'/Library/Application Support/REAPER/ColorThemes/'
+  local env={cache=h.cache..'/v195',mkdir=function(p) os.execute('mkdir -p "'..p..'"') end}
+  local theme=assert(Theme.resolve(home..'Reapertips Theme.ReaperThemeZip',env))
+  eq(theme.layout,'reapertips2');eq(theme.version,1);eq(theme.param('mcp_sidebar_w'),86);eq(theme.param('absent',7),7)
+  eq(assert(Theme.resolve(REAPERTIPS)).layout,'reapertips')                      -- v1.90 keeps the first layout
+  local light=assert(Theme.resolve(home..'Reapertips Theme \226\128\147 Light.ReaperThemeZip',env))
+  eq(light.version,3);eq(light.param('mcp_dim_sel_strength'),0)
+  local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),theme,{output_strip=false})
+  local function at(hgt) g.ext_retina=2;g.w=172;g.h=hgt*2;v:frame() end
+  at(500);eq(#v.bitmaps.missing,0)                                                -- short strip: input box only
+  local arm,mute,solo,fx=v.hits.I_RECARM,v.hits.B_MUTE,v.hits.I_SOLO,v.hits.FX
+  eq(arm.w,21);eq(arm.h,21);eq(mute.w,21);eq(mute.x,arm.x);eq(solo.y-mute.y,23)
+  eq(fx.x,5);eq(fx.w,57);eq(v.hits.I_FXEN.x,62);eq(v.hits.I_FXEN.w,18)
+  assert(v.hits.I_RECINPUT and v.hits.I_RECINPUT.w<60);eq(v.hits.I_RECMODE,nil)
+  assert(v.hits.I_AUTOMODE.y<v.hits.B_PHASE.y,'envelope sits above polarity in v1.95')
+  eq(v.hits.D_VOL.x,31);assert(v.layout.meter)
+  at(700)                                                                         -- tall strip: full-width input box and record mode
+  assert(v.hits.I_RECINPUT.w>70 and v.hits.I_RECMODE and v.hits.I_RECMODE.y>v.hits.I_RECINPUT.y)
+  for _,id in ipairs({'D_PAN','IO','I_RECMON','name','output','fx1'}) do assert(v.hits[id],id) end
+  local hit=v.hits.B_MUTE;g.mouse_x=(hit.x+5)*2;g.mouse_y=(hit.y+5)*2;g.mouse_cap=1;v:frame();g.mouse_cap=0;v:frame()
+  eq(h.a.values.B_MUTE,1)
+  g.w=130;v:frame();for _,id in ipairs({'D_VOL','B_MUTE','I_RECARM','FX'}) do local k=v.hits[id];assert(k.x>=0 and k.x+k.w<=66,id) end
+end)
+
 test('narrow panels drop the meter before controls can collide; double-click resets the fader', function()
   local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
   h.GetOS=function() return 'macOS-arm64' end

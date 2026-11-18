@@ -23,7 +23,10 @@ local function write(path, data)
 end
 -- Which hand-made strip layout fits this theme. Anything unrecognised gets the generic arrangement.
 local function layout_of(cfg)
-  if cfg:sub(1,600):find('Reapertips',1,true) then return 'reapertips' end
+  if cfg:sub(1,600):find('Reapertips',1,true) then
+    -- v1.95 redesigned the mixer strip (new sizes and artwork, a sidebar option); v1.90 and earlier share the first layout.
+    return cfg:find('define_parameter%s+mcp_sidebar_w') and 'reapertips2' or 'reapertips'
+  end
   return 'generic'
 end
 local function finish(t, cfg, inis)
@@ -39,6 +42,12 @@ local function finish(t, cfg, inis)
     if n then n = n & 0xFFFFFF; colors[key] = {n & 255, (n >> 8) & 255, (n >> 16) & 255} else colors[key] = fallback end
   end
   t.row_height = math.max(12,math.min(26,row)); t.rtconfig = cfg; t.colors = colors; t.layout = layout_of(cfg)
+  -- The theme's own defaults for the values its layout script uses (colour variants differ only in these).
+  local source = '\n'..cfg
+  t.version = tonumber(source:match('\nset theme_version%s+(%d+)')) or 1
+  t.param = function(name, fallback)
+    return tonumber(source:match('\ndefine_parameter%s+'..name.."%s+'[^']*'%s+(%-?%d+)")) or fallback
+  end
   return t
 end
 -- A theme archive is read in place. Only the images actually drawn are copied out, on demand, into

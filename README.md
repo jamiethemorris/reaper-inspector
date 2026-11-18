@@ -2,7 +2,7 @@
 
 A dockable, single-selected-track Lua `gfx` inspector, independent of REAPER's mixer. Runtime dependencies: REAPER's built-in Lua/ReaScript and `gfx` only. No ReaImGui, SWS, JS extension, package installation, action registration by the script, or theme installation.
 
-**Verification status (0.4.1):** the Reapertips single-strip layout was checked offline, pixel against pixel, with a screenshot of the native mixer strip. That comparison uses a stand-in renderer (`tests/preview.py`), so it proves geometry and artwork handling, not REAPER's own text rendering, menus or control behaviour. 0.2.0 has been run in REAPER 7.86 on macOS; 0.4.0 has been seen running in REAPER with Default 7 and Flat Madness (two strips, archive artwork, plain strip); rename and the other click behaviours added since 0.2.0 have **not yet been confirmed in REAPER**. All 32 offline synthetic-host tests pass.
+**Verification status (0.5.0):** the two Reapertips layouts (v1.90 and v1.95) were each checked offline against a screenshot of the native mixer strip in that version. That comparison uses a stand-in renderer (`tests/preview.py`), so it proves geometry and artwork handling, not REAPER's own text rendering, menus or control behaviour. 0.2.0 has been run in REAPER 7.86 on macOS; 0.4.0 has been seen running in REAPER with Default 7 and Flat Madness (two strips, archive artwork, plain strip); the v1.95 layout, rename and the other click behaviours added since 0.2.0 have **not yet been confirmed in REAPER**. All 33 offline synthetic-host tests pass.
 
 ## Install
 
@@ -51,12 +51,13 @@ How closely it matches depends on the theme:
 
 | Theme | What you get |
 |---|---|
-| Reapertips (the stock theme and copies that keep its mixer panel) | The hand-made layout: the theme's own artwork, placed where the native mixer puts it. |
+| Reapertips v1.95 (the current stock theme and its colour variants: Green, Purple, Hybrid, Light, Dark with Light Menus) | A hand-made layout: the theme's own artwork, placed where the native mixer puts it, with each variant's own panel colours. Assumes the theme's default Theme Adjuster values (wide strip, labels on, no sidebar). |
+| Reapertips v1.90 and personal copies based on it | The first hand-made layout, as before. |
 | Anything else, including REAPER's Default 7 | The plain strip: the theme's own FX/send slot artwork and its text and meter colours, with the buttons, knob and fader drawn simply by the Inspector in the same arrangement. Every control works; it does not copy that theme's placement or button art. A hand-made Default 7 layout is planned. |
 
 **Theme archives** are read in place by a small built-in unzipper and are never modified. REAPER's drawing functions can only load images from files, so the images actually drawn (a few dozen) are copied on first use into the Inspector's own cache, `<REAPER resource folder>/Data/ReaperInspector/cache/<theme>-<fingerprint>/`. Each is checked against the archive's checksum first. The folder can be deleted at any time. A `.ReaperTheme` that points at an archive (how REAPER stores your colour tweaks to a zipped theme) is understood, and its colours win.
 
-The hand-made layout is **Reapertips-specific; there is no generic WALTER engine**. The positions and sizes in `inspector/view.lua` are the theme's wide mixer strip written out by hand and confirmed against the native mixer. What is read from the theme at run time:
+The hand-made layouts are **Reapertips-specific; there is no generic WALTER engine**. The positions and sizes in `inspector/view.lua` are each version's wide mixer strip written out by hand from the theme's layout script and confirmed against the native mixer. v1.95 redesigned the strip (smaller record, envelope and record-mode buttons, framed drop-downs, envelope above polarity, the input box moving beside the record button on short strips), which is why it has its own layout. What is read from the theme at run time:
 
 - The PNG artwork, at the 100/150/200% density matching the display.
 - Each PNG's guide border. Pink lines mark margins that must not stretch (so the input arrow, button caps and rounded slot ends keep their exact pixels and only the flat middle stretches). Yellow lines mark art that overhangs its control (knob shadow, the white selected-track line above the number footer). Sprites are drawn 1:1 with nearest sampling; nothing is resampled except the small send-level knob.
@@ -129,9 +130,9 @@ luac -p 'Reaper Inspector.lua' inspector/*.lua tests/*.lua
 python3 tests/asset_audit.py
 ```
 
-The Lua suite (32 tests) exercises the production modules with explicitly synthetic host/gfx APIs: read-only startup/selection, every click handler and menu path, guide-margin slicing, FX/send identity checks, volume endpoints and mapping, drag cancellation on selection/deletion/project switch, balanced Undo on exceptions, theme/path handling, docking/stop/rerun lifecycle, and layout at several widths, heights and densities.
+The Lua suite (33 tests) exercises the production modules with explicitly synthetic host/gfx APIs: read-only startup/selection, every click handler and menu path, guide-margin slicing, FX/send identity checks, volume endpoints and mapping, drag cancellation on selection/deletion/project switch, balanced Undo on exceptions, theme/path handling, docking/stop/rerun lifecycle, and layout at several widths, heights and densities.
 
-The Lua suite and the audit read the artwork of an installed copy of the Reapertips theme (`ColorThemes/Reapertips Theme_Custom2`), which is not in this repository; without it most tests cannot run.
+The Lua suite and the audit read the artwork of installed copies of the Reapertips theme (`ColorThemes/Reapertips Theme_Custom2`, a v1.90 copy, plus the stock v1.95 `Reapertips Theme.ReaperThemeZip` and its Light variant), which are not in this repository; without them most tests cannot run.
 
 The Python stdlib audit decodes every installed PNG the Inspector can draw (48 sprites × 3 densities) and checks that no guide pixels sit inside the cropped art.
 
