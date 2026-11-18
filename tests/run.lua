@@ -463,6 +463,45 @@ test('Reapertips v1.95 gets its own strip: every control from its own artwork at
   g.w=130;v:frame();for _,id in ipairs({'D_VOL','B_MUTE','I_RECARM','FX'}) do local k=v.hits[id];assert(k.x>=0 and k.x+k.w<=66,id) end
 end)
 
+test('Default 7 gets its own strip, built from base art plus overlays, following Theme Adjuster values', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  h.GetOS=function() return 'macOS-arm64' end
+  local Theme=dofile('inspector/theme.lua')
+  local home=os.getenv('HOME')..'/Library/Application Support/REAPER/ColorThemes/'
+  local env={cache=h.cache..'/d7',mkdir=function(p) os.execute('mkdir -p "'..p..'"') end}
+  local theme=assert(Theme.resolve(home..'Default_7.0.ReaperThemeZip',env))
+  eq(theme.layout,'default7');eq(theme.row_height,18);eq(theme.param('LayoutA-verboseMcp'),0);eq(theme.param('mcpBgColR'),129)
+  local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),theme,{output_strip=false})
+  local function at(hgt) g.ext_retina=2;g.w=184;g.h=hgt*2;v:frame() end
+  at(640);eq(#v.bitmaps.missing,0)
+  local loaded={};for _,p in pairs(g.images) do loaded[p:match('([^/]+)%.png$'):gsub('^200_','')]=true end
+  for _,n in ipairs({'track_mute_off','track_mute_off_ol','track_recarm_off_ol','mcp_io_s_ol','mcp_fx_norm','track_fxon_v_ol','dropdownBg_h','gen_knob_bg_small','mcp_volthumb'}) do assert(loaded[n],n) end
+  local mute,solo,io,fx,byp,env_,phase=v.hits.B_MUTE,v.hits.I_SOLO,v.hits.IO,v.hits.FX,v.hits.I_FXEN,v.hits.I_AUTOMODE,v.hits.B_PHASE
+  eq(mute.w,20);eq(mute.h,20);eq(mute.x,92-32+6);eq(solo.y,mute.y+20);eq(io.y,solo.y+26);eq(io.h,22)
+  eq(fx.y,io.y+28);eq(byp.y,fx.y+20);eq(byp.h,16);eq(env_.y,byp.y+22);eq(phase.y,env_.y+28)
+  eq(v.hits.I_RECINPUT.w,80);eq(v.hits.I_RECMODE.w,40);assert(v.hits.INFX);eq(v.hits.I_RECARM.w,24)
+  local compact=v.hits.D_PAN.y-v.hits.I_RECINPUT.y
+  theme.live={['LayoutA-verboseMcp']=1};v:frame()                        -- Theme Adjuster: verbose
+  eq(v.hits.IO.h,32);eq(v.hits.D_PAN.y-v.hits.I_RECINPUT.y,compact+14);eq(theme.param('LayoutA-verboseMcp'),1)
+  theme.live={['LayoutA-mcpNormalShowRoute']=0};v:frame();eq(v.hits.IO,nil);assert(v.hits.FX.y<fx.y)
+  theme.live=nil
+  at(470);assert(v.hits.B_MUTE and v.hits.FX);eq(v.hits.B_PHASE,nil)      -- short strip: lowest buttons are left out, not squeezed
+  for _,k in pairs(v.hits) do assert(k.y+k.h<=470+.01,k.id) end
+  local hit=v.hits.INFX;g.mouse_x=(hit.x+5)*2;g.mouse_y=(hit.y+5)*2;g.mouse_cap=1;v:frame();g.mouse_cap=0;v:frame()
+  eq(h.writes[#h.writes][1],'fx');eq(h.writes[#h.writes][3],0x1000000)   -- input FX chain
+end)
+
+test('Theme Adjuster values are read live only while following REAPER\'s theme', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  local params={{'LayoutA-verboseMcp',1},{'selDot',0}}
+  h.ThemeLayout_GetParameter=function(i) local p=params[i+1];if p then return p[1],'',p[2],0,0,1 end;return nil end
+  local App=dofile('inspector/app.lua')
+  local app=App.new(h,g);assert(app:start());app:frame()
+  eq(app.theme.live['LayoutA-verboseMcp'],1);eq(app.theme.param('selDot',1),0);eq(app.theme.param('absent',5),5)
+  assert(app:load_path(REAPERTIPS));app:frame();eq(app.theme.live,nil)   -- a pinned theme uses its own defaults
+  app:stop();eq(#h.writes,0)
+end)
+
 test('narrow panels drop the meter before controls can collide; double-click resets the fader', function()
   local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
   h.GetOS=function() return 'macOS-arm64' end

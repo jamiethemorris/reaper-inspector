@@ -27,10 +27,13 @@ local function layout_of(cfg)
     -- v1.95 redesigned the mixer strip (new sizes and artwork, a sidebar option); v1.90 and earlier share the first layout.
     return cfg:find('define_parameter%s+mcp_sidebar_w') and 'reapertips2' or 'reapertips'
   end
+  -- REAPER's Default 7 and themes built on its layout script.
+  if cfg:find('define_parameter%s+mcpStripFlowLocation1') and cfg:find('macro%s+drawMcp%s+thisLayout') then return 'default7' end
   return 'generic'
 end
 local function finish(t, cfg, inis)
-  local row = tonumber(cfg:match('define_parameter%s+mcp_list_row_h%s+[^\r\n]-[\'\"]%s+(%d+)')) or 17
+  local row = tonumber(cfg:match('define_parameter%s+mcp_list_row_h%s+[^\r\n]-[\'\"]%s+(%d+)'))
+    or tonumber(cfg:match('set%s+mcp%.fxlist%.font[^\r\n]-%[%s*%d+%s+(%d+)')) or 17
   -- List/meter text colours live in the .ReaperTheme (0x00BBGGRR); the first file that names a colour wins.
   local colors = {}
   for key,fallback in pairs(M.COLORS) do
@@ -45,8 +48,11 @@ local function finish(t, cfg, inis)
   -- The theme's own defaults for the values its layout script uses (colour variants differ only in these).
   local source = '\n'..cfg
   t.version = tonumber(source:match('\nset theme_version%s+(%d+)')) or 1
+  -- t.live, when set, holds the values currently chosen in REAPER's Theme Adjuster; they win over the defaults.
   t.param = function(name, fallback)
-    return tonumber(source:match('\ndefine_parameter%s+'..name.."%s+'[^']*'%s+(%-?%d+)")) or fallback
+    if t.live and t.live[name] ~= nil then return t.live[name] end
+    local literal = name:gsub('%p','%%%0') -- names such as "LayoutA-verboseMcp" contain pattern characters
+    return tonumber(source:match('\ndefine_parameter%s+'..literal.."%s+'[^']*'%s+(%-?%d+)")) or fallback
   end
   return t
 end

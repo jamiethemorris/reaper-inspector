@@ -7,7 +7,9 @@ for name in ([[mcp_recarm_off mcp_recarm_on mcp_monitor_off mcp_monitor_on mcp_m
   mcp_solo_off mcp_solo_on mcp_phase_norm mcp_phase_inv mcp_io mcp_io_dis mcp_io_r mcp_io_r_dis mcp_io_s mcp_io_s_dis
   mcp_io_s_r mcp_io_s_r_dis mcp_env mcp_env_read mcp_env_touch mcp_env_write mcp_env_latch mcp_env_preview
   mcp_fx_norm mcp_fx_empty mcp_fx_dis track_fxon_v track_fxoff_v track_fxempty_v
-  mcp_recmode_in mcp_recmode_out mcp_recmode_off]]):gmatch('%S+') do horizontal[name]=true end
+  mcp_recmode_in mcp_recmode_out mcp_recmode_off
+  track_mute_off track_mute_on track_solo_off track_solo_on track_recarm_off track_recarm_on
+  track_fx_in_norm track_fx_in_empty]]):gmatch('%S+') do horizontal[name]=true end
 local vertical={}
 for name in ([[mcp_fxlist_norm mcp_fxlist_byp mcp_fxlist_off mcp_fxlist_empty
   mcp_sendlist_norm mcp_sendlist_empty mcp_sendlist_mute mcp_sendlist_midihw]]):gmatch('%S+') do vertical[name]=true end
@@ -19,13 +21,14 @@ local function kind(r,g,b)
   if r>0.99 and g>0.99 and b<0.01 then return 2 end
   return 0
 end
-function M:get(name)
+-- `optional` art (overlays, per-theme alternatives) is not reported as missing when a theme lacks it.
+function M:get(name,optional)
   if self.cache[name]~=nil then return self.cache[name] or nil end
   -- Without a hand-made layout only the list cells are safe to borrow: every theme sizes and slices
   -- its buttons, knobs and faders differently, so the view draws those itself.
   if self.theme.layout=='generic' and not vertical[name] then self.cache[name]=false;return nil end
   local a=Theme.asset(self.theme,name,self.density)
-  if not a then self.cache[name]=false;self.missing[#self.missing+1]=name;return nil end
+  if not a then self.cache[name]=false;if not optional then self.missing[#self.missing+1]=name end;return nil end
   local g=self.g;local slot=self.count
   if g.loadimg(slot,a.path)<0 then self.cache[name]=false;self.missing[#self.missing+1]=name;return nil end
   self.count=self.count+1;a.slot=slot
@@ -49,16 +52,19 @@ function M:get(name)
       a.over[i],a.margin[i]=run(sd[1],sd[2],sd[3],sd[4],sd[5])
     end
   end
+  -- An overlay ("_ol") is the part drawn on top of a control, larger than the control itself: its pink
+  -- lines say how far it reaches past each edge.
+  if name:sub(-3)=='_ol' then for i=1,4 do a.over[i]=a.over[i]+a.margin[i];a.margin[i]=0 end end
   g.dest,g.x,g.y=dest,x,y
   a.x=border and 1 or 0;a.y=a.x;a.w=w-2*a.x;a.h=h-2*a.y
   self.cache[name]=a;return a
 end
 -- Source rectangle of one state inside the guide-free interior.
-function M:frame(name,state)
-  local a=self:get(name);if not a then return nil end
+function M:frame(name,state,optional)
+  local a=self:get(name,optional);if not a then return nil end
   local sx,sy,sw,sh=a.x,a.y,a.w,a.h
   state=math.max(0,math.min(2,state or 0))
-  if horizontal[name] then sw=math.floor(sw/3);sx=sx+state*sw end
+  if horizontal[name] or horizontal[name:gsub('_ol$','')] then sw=math.floor(sw/3);sx=sx+state*sw end
   if vertical[name] then
     -- A locally edited sheet can be a row or two short: integral rows, last one clamped.
     local endy=sy+sh;local step=math.ceil(sh/3)
@@ -76,14 +82,17 @@ end
 -- Draw a sprite into the logical control rectangle x,y,w,h (nil w/h = the art's own size).
 -- Guide margins keep their pixel size and only the middle stretches, so glyphs such as
 -- the input arrow are never scaled. Yellow-guide overhang is drawn outside the rectangle.
-function M:draw(name,state,x,y,w,h,scale)
-  local a,sx,sy,sw,sh=self:frame(name,state);if not a then return false end
+-- `crop` (points) draws only the top of the art, for a control shown shorter than its artwork.
+function M:draw(name,state,x,y,w,h,scale,optional,crop)
+  local a,sx,sy,sw,sh=self:frame(name,state,optional);if not a then return false end
+  if crop then sh=math.min(sh,math.floor(crop*a.scale+.5)+a.over[2]) end
   local k=scale/a.scale
   local function px(v) return math.floor(v*scale+.5) end
   local function ip(v) return math.floor(v*k+.5) end
   local ol,ot,orr,ob=a.over[1],a.over[2],a.over[3],a.over[4]
   local X,Y=px(x)-ip(ol),px(y)-ip(ot)
   local Wd=(w and px(x+w)-px(x) or ip(sw-ol-orr))+ip(ol)+ip(orr)
+  if crop then ob=0 end
   local Hd=(h and px(y+h)-px(y) or ip(sh-ot-ob))+ip(ot)+ip(ob)
   local function cuts(size,dsize,first,last)
     local f,l=ip(first),ip(last)

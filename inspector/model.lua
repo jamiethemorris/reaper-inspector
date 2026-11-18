@@ -79,6 +79,7 @@ function M:read(p,t,guid)
       volume=r.GetTrackSendInfo_Value(t,0,i,'D_VOL'),mute=r.GetTrackSendInfo_Value(t,0,i,'B_MUTE')~=0}
   end
   s.receives=r.GetTrackNumSends(t,-1)
+  s.recfx=r.TrackFX_GetRecCount and r.TrackFX_GetRecCount(t) or 0
   s.peaks={r.Track_GetPeakInfo(t,0),r.Track_GetPeakInfo(t,1)}
   return s
 end
@@ -137,6 +138,11 @@ end
 -- FX slots are addressed by index, so the GUID is rechecked before every use.
 function M:fx_ok(token,fx)
   return self:valid(token) and fx~=nil and self.r.TrackFX_GetFXGUID(token.track,fx.index)==fx.guid
+end
+-- The input (record) FX chain lives at index 0x1000000 of the same track.
+function M:open_input_fx(token)
+  if not self:valid(token) then return false end
+  self.r.TrackFX_Show(token.track,0x1000000,1);return true
 end
 function M:open_fx(token,fx)
   if not self:fx_ok(token,fx) then return false end

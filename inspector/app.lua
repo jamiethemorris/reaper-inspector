@@ -54,6 +54,19 @@ function M:load_path(path)
   if ok then self.following=false;self:put('theme_choice',path,true) end
   return ok,err
 end
+-- The values chosen in REAPER's Theme Adjuster. They describe REAPER's current theme, so they are
+-- only attached while the Inspector is following it.
+function M:live_params()
+  local r=self.r
+  if not self.following or not self.theme or not r.ThemeLayout_GetParameter then return end
+  local live={}
+  for i=0,4000 do
+    local name,_,value=r.ThemeLayout_GetParameter(i)
+    if type(name)~='string' or name=='' then break end
+    live[name]=value
+  end
+  self.theme.live=live
+end
 function M:current() return self.r.GetLastColorThemeFile and self.r.GetLastColorThemeFile() or '' end
 function M:follow()
   self.following=true;self:put('theme_choice','',true)
@@ -115,6 +128,7 @@ function M:frame()
   if self.closed or not self:owned() then return false end
   if self.following and self.frames%30==0 then -- about once a second: has REAPER switched theme?
     if self:current()~=self.followed then self:follow() end
+    self:live_params()
   end
   local key=self.g.getchar()
   if key<0 or key==27 or self:get('stop')==self.owner then self:stop();return false end

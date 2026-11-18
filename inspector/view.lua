@@ -264,14 +264,16 @@ function M:draw(s)
   end
 end
 -- Pan pointer: REAPER draws the knob position itself, the art is only the cap.
-function M:pointer(s,kx,ky)
+function M:pointer(s,kx,ky,size,color)
   local g,sc=self.g,self.scale
+  size=size or 24;color=color or {178,178,178}
   local ang=clamp(s.D_PAN,-1,1)*math.pi*.75-math.pi/2
-  local cx,cy=self:pxx(kx+12),self:px(ky+12)
+  local cx,cy=self:pxx(kx+size/2),self:px(ky+size/2)
   local dx,dy=math.cos(ang),math.sin(ang)
-  g.set(178/255,178/255,178/255,1)
+  g.set(color[1]/255,color[2]/255,color[3]/255,1)
   local hw=sc -- half the 2 pt pointer width, in device pixels
-  local x1,y1,x2,y2=cx+dx*5.5*sc,cy+dy*5.5*sc,cx+dx*10*sc,cy+dy*10*sc
+  local r1,r2=5.5*size/24,10*size/24
+  local x1,y1,x2,y2=cx+dx*r1*sc,cy+dy*r1*sc,cx+dx*r2*sc,cy+dy*r2*sc
   if g.triangle then
     g.triangle(x1-dy*hw,y1+dx*hw,x1+dy*hw,y1-dx*hw,x2+dy*hw,y2-dx*hw,x2-dy*hw,y2+dx*hw)
   else
@@ -413,6 +415,150 @@ function M:lower2(s,W,H,c)
   self:rect(0,B+22,w,4,body);self:rect(0,B+23,w,2,{234,234,234})
   self:text(s.master and '' or ('%d'):format(s.IP_TRACKNUMBER),0,B+26,W-2,20,itext,'main',1)
 end
+-- REAPER Default 7 strip from the input box down: the theme's "normal width" mixer form (rtconfig
+-- drawMcp, layout A) in strip coordinates, using the Theme Adjuster values in force.
+function M:lower3(s,W,H,c)
+  local m,th,bm,T,L=self.model,self.theme,self.bitmaps,c.T,c.L
+  local function P(name,fallback) return th.param(name,fallback) end
+  local verbose=P('LayoutA-verboseMcp',0)~=0
+  local tb=P('textBrightness',100)/100
+  local function grey(v) v=math.min(255,v*tb);return {v,v,v} end
+  -- Strip colour: theme grey, tinted by a custom track colour, lightened for the selected track.
+  local bg={P('mcpBgColR',129),P('mcpBgColG',137),P('mcpBgColB',137)}
+  local ratio=c.custom and P('customColorDepthParam',30)/100 or 0
+  local sel=P('selectStrength',25)/100
+  local main={}
+  for i=1,3 do main[i]=(c.base[i]*ratio+bg[i]*(1-ratio))*(1-sel)+255*sel end
+  local bright=(main[1]*299+main[2]*587+main[3]*114)/1000
+  local dark={38,38,38}
+  -- The theme compares these two thresholds with the strip height in device pixels, whatever the display scale.
+  local topH=(L*self.scale>P('LayoutA-mcpNormalShowSecIn',300)) and 50 or 0
+  local panH=L*self.scale<P('LayoutA-mcpNormalShowSecPan',200) and 0 or (verbose and 46 or 30)
+  local Y1=T+topH;local D=Y1+panH;local B=H-44
+  local bw=32                                             -- button column
+  self.layout={T=T,S=D,B=B,L=L,meter=true}
+  local function art(name,state,x,y,w,h,crop)             -- a control's image plus its overlay, if the theme has one
+    local ok=bm and bm:draw(name,state,x+self.ox,y,w,h,self.scale,true,crop)
+    if bm and bm:draw(name..'_ol',state,x+self.ox,y,w,h,self.scale,true,crop) then ok=true end
+    return ok
+  end
+  local function button(id,name,x,y,w,h,action,menu,crop)
+    local hover=inside({x=x,y=y,w=w,h=h},self.mx,self.my)
+    local state=hover and ((self.g.mouse_cap&1)~=0 and 2 or 1) or 0
+    if not art(name,state,x,y,w,h,crop) then
+      local p=PLAIN[name] or PLAIN[name:gsub('^track_','mcp_')] or {''}
+      self:rect(x+1,y+1,w-2,h-2,state==1 and {78,78,78} or {62,62,62});self:text(p[1],x,y,w,h,p[2] or {150,150,150},'main',1)
+    end
+    return self:hit(id,x,y,w,h,action,menu)
+  end
+
+  self:rect(0,T,W,L,main)
+  self:rect(0,D,W-bw,B-D,dark)
+  if P('LayoutA-mcpNormalDarkButtons',1)~=0 then self:rect(W-bw,D,bw,B-D,dark) end
+
+  -- Input section
+  if topH>0 and not s.master then
+    art('dropdownBg_h',0,6,T+6,W-12,20);art('mcp_recinput',0,6,T+6,W-12,20)
+    self:text(self:input_label(s.I_RECINPUT),10,T+7,W-36,19,grey(235),'main',0)
+    self:hit('I_RECINPUT',6,T+6,W-12,20,function() self:input_menu(s) end)
+    local rm=math.floor(s.I_RECMODE)
+    art('dropdownBg_h',0,6,T+30,40,20)
+    button('I_RECMODE',rm==2 and 'mcp_recmode_off' or (rm==0 or rm==7 or rm==8 or rm==16) and 'mcp_recmode_in' or 'mcp_recmode_out',6,T+30,40,20,function()
+      local items={}
+      for _,mode in ipairs(RECMODES) do items[#items+1]={mode[2],function() m:set(s,'I_RECMODE',mode[1]) end,checked=rm==mode[1]} end
+      self:menu(items)
+    end)
+    button('INFX',(s.recfx or 0)>0 and 'track_fx_in_norm' or 'track_fx_in_empty',W-26,T+30,20,20,function() m:open_input_fx(s) end)
+  end
+
+  -- Pan section
+  if panH>0 then
+    local dual=s.I_PANMODE==6
+    local ptext=grey(bright<150 and 220 or 38)
+    local ky=Y1+(verbose and 18 or 4);local kx=W/2-10
+    if verbose then
+      local pan=math.floor(math.abs(s.D_PAN)*100+.5)
+      self:text(dual and 'dual pan' or pan==0 and 'center' or (pan..'%'..(s.D_PAN<0 and 'L' or 'R')),6,Y1+2,W-12,16,ptext,'main',1)
+    end
+    if not art('gen_knob_bg_small',0,kx,ky,20,20) and self.g.circle then
+      self.g.set(.13,.13,.13,1);self.g.circle(self:pxx(kx+10),self:px(ky+10),self:px(9),1,1);self.g.a=1
+    end
+    self:pointer(s,kx,ky,20,{60,60,60})
+    if not dual then local hit=self:hit('D_PAN',kx-2,ky-2,24,24);hit.kind,hit.token='D_PAN',s end
+  end
+
+  -- Meter, fader, record arm and monitor
+  local lab=verbose and 20 or 0
+  local dw=W-bw
+  if verbose then self:text((s.D_VOL>0 and db(s.D_VOL)>=0 and '+' or '')..gaintext(s.D_VOL)..'dB',0,D+6,dw,14,grey(150),'main',1) end
+  local my,mh=D+6+lab,(B-D)-36-lab
+  local mw=dw-32
+  local showvals=(s.I_RECARM~=0 and P('LayoutA-mcpMeterValsRecarm',1) or P('LayoutA-mcpMeterValsSel',0))~=0
+  if mw>=10 then self:meter(s,{x=4,y=my,w=mw,h=mh,labels=showvals,readout=P('LayoutA-mcpMeterReadout',1)~=0},c.colors) end
+  local vx=dw-26
+  art('mcp_volbg',0,vx,my,25,mh)
+  local top,bottom=my+21.5,my+mh-21.5
+  local fy=bottom-self.mapping.to_position(s.D_VOL)*(bottom-top)
+  if not art('mcp_volthumb',0,vx+1,fy-25.5) then self:rect(vx+3,fy-15,19,30,{150,150,150}) end
+  local hit=self:hit('D_VOL',vx,my-4,25,mh+8)
+  hit.kind,hit.token='D_VOL',s
+  hit.top,hit.bottom,hit.fader_y=top,bottom,fy
+  if not s.master then
+    button('I_RECARM',s.I_RECARM~=0 and 'track_recarm_on' or 'track_recarm_off',vx+.5,my+mh+4,24,20,function() m:toggle(s,'I_RECARM') end)
+    if mw>=10 then
+      button('I_RECMON',s.I_RECMON==2 and 'mcp_monitor_auto' or s.I_RECMON==1 and 'mcp_monitor_on' or 'mcp_monitor_off',4+mw/2-10,my+mh+4,20,20,function() m:toggle(s,'I_RECMON') end)
+    end
+  end
+
+  -- Button column: each control follows the one above; whatever would pass the bottom is left out, as in the mixer.
+  local bx,y=W-bw+6,D+6
+  local function place(h,gap,draw)
+    if gap then y=y+6 end
+    if y+h+(gap and 6 or 0)<=B then draw(y) end
+    y=y+h
+  end
+  place(20,false,function(py) button('B_MUTE',s.B_MUTE~=0 and 'track_mute_on' or 'track_mute_off',bx,py,20,20,function() m:toggle(s,'B_MUTE') end) end)
+  place(20,false,function(py) if not s.master then button('I_SOLO',s.I_SOLO~=0 and 'track_solo_on' or 'track_solo_off',bx,py,20,20,function() m:toggle(s,'I_SOLO') end) end end)
+  local tall=verbose and 32 or 22
+  if P('LayoutA-mcpNormalShowRoute',1)~=0 then place(tall,true,function(py)
+    local io='mcp_io'..(#s.sends>0 and '_s' or '')..((s.receives or 0)>0 and '_r' or '')..(s.B_MAINSEND==0 and '_dis' or '')
+    button('IO',io,bx,py,20,tall,function() self:show_routing(s) end,function() self:send_menu(s) end,not verbose and 22 or nil)
+  end) end
+  if P('LayoutA-mcpNormalShowSecFx',1)~=0 then place(36,true,function(py)
+    local fxon=s.I_FXEN~=0
+    button('FX',#s.fx==0 and 'mcp_fx_empty' or fxon and 'mcp_fx_norm' or 'mcp_fx_dis',bx,py,20,20,
+      function() if #s.fx==0 then self:add_fx(s) else m:fx_chain(s) end end,function() self:fx_menu(s) end)
+    button('I_FXEN',#s.fx==0 and 'track_fxempty_v' or fxon and 'track_fxon_v' or 'track_fxoff_v',bx,py+20,20,16,function() m:toggle(s,'I_FXEN') end)
+  end) end
+  if P('LayoutA-mcpNormalShowEnv',1)~=0 then place(tall,true,function(py)
+    local mode=math.floor(s.I_AUTOMODE)
+    button('I_AUTOMODE',ENV[mode] or 'mcp_env',bx,py,20,tall,function()
+      local items={}
+      for i,label in ipairs(AUTOMODES) do items[#items+1]={label,function() m:set(s,'I_AUTOMODE',i-1) end,checked=mode==i-1} end
+      self:menu(items)
+    end,nil,not verbose and 22 or nil)
+  end) end
+  if P('LayoutA-mcpNormalShowPhase',1)~=0 then place(16,true,function(py)
+    if not s.master then button('B_PHASE',s.B_PHASE~=0 and 'mcp_phase_inv' or 'mcp_phase_norm',bx,py,20,16,function() m:toggle(s,'B_PHASE') end) end
+  end) end
+
+  -- Name and number
+  local invert=P('selInvertLabels',1)~=0
+  local armed=s.I_RECARM~=0
+  local namebg=dark
+  if invert then namebg={};for i=1,3 do namebg[i]=main[i]+(255-main[i])*100/255 end end
+  self:rect(0,B,W,24,namebg)
+  local ntext=invert and (armed and {180,0,10} or {38,38,38}) or armed and {255,80,100}
+    or (c.custom and P('colorTrackLabels',1)~=0) and name_color(c.base) or grey(200)
+  self:text(s.name,4,B,W-8,24,ntext,'header',1)
+  if not s.master then self:hit('name',0,B,W,24).double=function() self:rename(s) end end
+  local idx=c.custom and c.base or bg
+  self:rect(0,B+24,W,20,idx)
+  local ib=(idx[1]*299+idx[2]*587+idx[3]*114)/1000
+  self:text(s.master and '' or ('%d'):format(s.IP_TRACKNUMBER),0,B+24,W,20,(c.custom and ib>128) and grey(50) or grey(230),'main',1)
+  if P('selDot',1)~=0 then art('tcp_selectionDot_sel',0,W/2-4,B+20,8,8) end
+  self:rect(0,T,.5,L,{0,0,0,P('mcpDivOpacity',80)})
+end
 -- One mixer strip, drawn in its own coordinates (self.ox places it in the panel).
 function M:strip(s,W,H)
   local bm=self.bitmaps
@@ -422,6 +568,7 @@ function M:strip(s,W,H)
   -- has one, the theme's neutral grey otherwise, each dimmed by the theme's default amounts.
   local custom=s.color and s.color~=0
   local v2=self.theme and self.theme.layout=='reapertips2'
+  local v3=self.theme and self.theme.layout=='default7'
   local base=v2 and {130,130,130} or {152,152,152}
   if custom then local r,g,b=self.r.ColorFromNative(math.floor(s.color)&0xFFFFFF);base={r,g,b} end
   local panel,idx=mul(base,.8),mul(base,.75)
@@ -431,7 +578,7 @@ function M:strip(s,W,H)
   local ntext=custom and name_color(base) or {235,235,235}
   -- Vertical sections, bottom-anchored like a mixer strip. The theme hides the input row on short strips.
   -- v1.95 needs a taller strip before it shows its full input panel; the racks keep at least ~200 pt.
-  local L=v2 and clamp(H-200,300,430) or clamp(H-57,300,380)
+  local L=v2 and clamp(H-200,300,430) or v3 and clamp(H-200,260,340) or clamp(H-57,300,380)
   local inh=L>=350 and 42 or 22
   local T=H-L;local IN=T+83;local S=IN+inh;local B=H-47;local SH=B-S
   local pad=SH<250 and 2 or SH<350 and 3 or 4
@@ -442,7 +589,7 @@ function M:strip(s,W,H)
 
   -- FX and send racks
   local row=self.theme and self.theme.row_height or 17
-  self:rect(0,0,W,T+1,{61,61,61})
+  self:rect(0,0,W,T+1,v3 and {38,38,38} or {61,61,61})
   local n=math.max(0,math.floor((T-6)/row))
   local sendrows=n>=4 and math.max(1,math.floor(n*.25+.5)) or n>=2 and 1 or 0
   -- The last send-rack row is pinned to the track's own output (master/parent send); the master has none.
@@ -534,6 +681,7 @@ function M:strip(s,W,H)
   end
   scrollbar('send_bar',#s.sends,sendrows,self.send_offset,sy)
 
+  if v3 then return self:lower3(s,W,H,{T=T,L=L,base=base,custom=custom,colors=colors}) end
   if v2 then return self:lower2(s,W,H,{T=T,L=L,B=B,base=base,custom=custom,colors=colors,meter=meter}) end
 
   -- FX button row, with the selected-track handle along its top edge
@@ -662,7 +810,7 @@ function M:meter(s,m,colors)
     if self.held[c]>-62 then self:rect(x,ydb(self.held[c]),bw,.5,{200,225,255}) end
   end
   local armed=s.I_RECARM~=0
-  for d=6,54,12 do -- the theme prints bare numbers between two small ticks
+  for d=6,(m.labels==false) and 0 or 54,12 do -- the theme prints bare numbers between two small ticks
     local y=ydb(-d);local label=tostring(d)
     local c=y>lit and {0,0,0,170} or armed and {255,64,0} or {255,255,255,60}
     self.g.setfont(4);local tw=self.g.measurestr(label)/self.scale
@@ -675,7 +823,7 @@ function M:meter(s,m,colors)
   end
   local over=self.peak>1
   local text=self.peak<=0 and '-inf' or ('%.1f'):format(db(self.peak))
-  self:text(text,m.x,m.y+1.5,m.w,13,over and {255,183,171} or {100,100,100},'bold',1)
+  if m.readout~=false then self:text(text,m.x,m.y+1.5,m.w,13,over and {255,183,171} or {100,100,100},'bold',1) end
   self:hit('meter',m.x,m.y,m.w,m.h,function() self.peak=0 end)
 end
 function M:input(s)
