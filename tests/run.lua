@@ -913,6 +913,61 @@ test('theFRXST: name on top, racks inside the strip, bottom-anchored panel; the 
   local other=assert(Theme.resolve(env.cache..'/changed',env));eq(other.layout,'generic');eq(other.send_row_height,nil)
 end)
 
+test('Mydaw: top rows hang from the panel top, the button column and name from the bottom, at any strip width', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  h.GetOS=function() return 'macOS-arm64' end
+  local Theme=dofile('inspector/theme.lua')
+  local home=os.getenv('HOME')..'/Library/Application Support/REAPER/ColorThemes/'
+  local env={cache=h.cache..'/mydaw',mkdir=function(p) os.execute('mkdir -p "'..p..'"') end}
+  local theme=assert(Theme.resolve(home..'Mydaw.ReaperThemeZip',env))
+  eq(theme.layout,'mydaw');eq(theme.row_height,15);eq(theme.send_row_height,18)
+  local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),theme,{output_strip=false})
+  local function at(w,hgt) g.ext_retina=2;g.w=w*2;g.h=hgt*2;v:frame() end
+  -- The theme's default 80 pt strip with its full 380 pt panel.
+  at(80,800);eq(#v.bitmaps.missing,0)
+  local k=v.hits;local T=420;local function B(y) return 800-380+y end
+  local function box(hit,x,y,w,hh) assert(math.abs(hit.x-x)<.001,hit.id..' x '..hit.x);eq(hit.y,y);eq(hit.w,w);eq(hit.h,hh) end
+  local x0=14                                                        -- 0.33 of the width, less the fraction of a pixel, minus 12
+  box(k.FX,4,T+4,24,15);box(k.I_FXEN,51,T+4,24,15);box(k.I_RECINPUT,4,T+31,72,15)
+  box(k.INFX,4,T+50,15,15);box(k.I_RECMON,30,T+50,21,15);box(k.I_RECMODE,61,T+50,15,15);box(k.IO,4,T+69,72,15)
+  box(k.meter,80*.66-6,T+110,15,246);box(k.D_VOL,80*.66+5,T+103,22,246)
+  box(k.D_PAN,x0-7,B(227),38,38);box(k.B_MUTE,x0,B(274),25,25);box(k.B_PHASE,x0,B(303),25,15)
+  box(k.I_SOLO,x0,B(322),25,15);box(k.I_RECARM,x0,B(341),25,15);box(k.name,0,B(359),80,21)
+  eq(k.fxadd2.y-k.fx1.y,15);eq(k.output.h,18);assert(k.output.y+18<=T)
+  for _,w in ipairs({68,74,80,86,120}) do
+    for _,mode in ipairs({3,5,6}) do
+      h.a.values.I_PANMODE=mode;at(w,700);k=v.hits
+      local ids={'FX','I_FXEN','I_RECINPUT','INFX','I_RECMON','I_RECMODE','IO','B_MUTE','B_PHASE','I_SOLO','I_RECARM','name','meter'}
+      for _,id in ipairs(mode==6 and {'D_DUALPANL','D_DUALPANR'} or mode==5 and {'D_PAN','D_WIDTH'} or {'D_PAN'}) do ids[#ids+1]=id end
+      if mode==6 then eq(k.D_PAN,nil) else eq(k.D_PAN.w,(mode==3 and w>74) and 38 or 25) end
+      local order={}
+      for _,id in ipairs(ids) do order[#order+1]=assert(k[id],id..' at '..w) end
+      for i,a in ipairs(order) do
+        assert(a.x>=0 and a.x+a.w<=w+.01 and a.y+a.h<=700.01,a.id..' leaves the strip at '..w)
+        for j=i+1,#order do local b=order[j]
+          assert(a.x+a.w<=b.x or b.x+b.w<=a.x or a.y+a.h<=b.y or b.y+b.h<=a.y,a.id..' overlaps '..b.id..' at '..w)
+        end
+      end
+      assert(k.D_VOL.x+k.D_VOL.w<=w+.01 and k.D_VOL.x>=k.meter.x)  -- the fader's slot lies over the meter's right side
+    end
+  end
+  h.a.values.I_PANMODE=3
+  -- Master as the output strip: menu art, centred routing, mono switch, no input rows; its meter takes the width.
+  v.options.output_strip=true;at(240,800);k=v.hits
+  box(k['out:B_MUTE'],120+13,B(266),25,25);box(k['out:MONO'],120+13,B(333),25,15);box(k['out:meter'],120+50,T+110,53,238) -- the master's bottom rows sit 8 pt higher
+  box(k['out:IO'],120+24,T+31,72,15)
+  assert(k['out:I_SOLO'] and k['out:FX'] and k['out:D_PAN']);eq(k['out:I_RECINPUT'],nil);eq(k['out:I_RECARM'],nil);eq(k['out:B_PHASE'],nil);eq(k['out:name'],nil)
+  at(172,800);eq(v.hits['out:meter'].w,19)
+  local before=#h.writes
+  local hit=v.hits.I_SOLO;g.mouse_x=(hit.x+5)*2;g.mouse_y=(hit.y+5)*2;g.mouse_cap=1;v:frame();g.mouse_cap=0;v:frame()
+  eq(#h.writes,before+1);eq(h.writes[#h.writes][2],'I_SOLO')
+  -- Recognised by its script: one changed rectangle falls back to the generic strip.
+  local changed,n=theme.rtconfig:gsub('%[low_ident{0} sm47{0} s25{0} s25{0} 0 1 0 1%]','[low_ident{0} sm47{0} s26{0} s25{0} 0 1 0 1]')
+  assert(n>0);os.execute('mkdir -p "'..env.cache..'/changed"')
+  local f=assert(io.open(env.cache..'/changed/rtconfig.txt','w'));f:write(changed);f:close()
+  local other=assert(Theme.resolve(env.cache..'/changed',env));eq(other.layout,'generic');eq(other.send_row_height,nil)
+end)
+
 test('Theme Adjuster values are read live only while following REAPER\'s theme', function()
   local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
   local params={{'LayoutA-verboseMcp',1},{'selDot',0}}

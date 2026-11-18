@@ -23,12 +23,13 @@ FONT_DIRS = [os.path.expanduser('~/Library/Fonts'), '/Library/Fonts', '/System/L
 
 
 def font_path(name, bold):
-    stem = name.replace(' ', '') + ('-Bold' if bold else '-Regular')
+    stems = [name.replace(' ', '') + ('-Bold' if bold else '-Regular'), name + (' Bold' if bold else '')]
     for d in FONT_DIRS:
-        for ext in ('.ttf', '.otf'):
-            p = os.path.join(d, stem + ext)
-            if os.path.exists(p):
-                return p
+        for stem in stems:
+            for ext in ('.ttf', '.otf'):
+                p = os.path.join(d, stem + ext)
+                if os.path.exists(p):
+                    return p
     return '/System/Library/Fonts/Supplemental/Arial.ttf'
 
 

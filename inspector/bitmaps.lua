@@ -14,6 +14,7 @@ for name in ([[mcp_recarm_off mcp_recarm_on mcp_monitor_off mcp_monitor_on mcp_m
   track_env track_env_read track_env_touch track_env_write track_env_latch track_env_preview
   track_monitor_off track_monitor_on track_monitor_auto
   mcp_mono mcp_stereo mixer_menu mcp_solodefeat_on mcp_recarm_auto mcp_recarm_auto_on
+  track_mono track_stereo track_recmode_in track_recmode_out track_recmode_off render
   track_io track_io_dis track_io_r track_io_r_dis track_io_s track_io_s_dis track_io_s_r track_io_s_r_dis]]):gmatch('%S+') do horizontal[name]=true end
 local vertical={}
 local borrow={}
@@ -110,9 +111,10 @@ function M:knob_frame(name,position,cx,cy,scale,fit)
   return true
 end
 -- A stack whose frames are as wide as the control and `h` points tall (theFRXST's bar-shaped pan and width).
-function M:stack(name,position,x,y,w,h,scale)
+-- `frame_h` (points) is for frames shorter than the control they are stretched into (Mydaw).
+function M:stack(name,position,x,y,w,h,scale,frame_h)
   local a=self:get(name,true);if not a then return false end
-  local fh=math.floor(h*a.scale+.5);local frames=fh>0 and a.h//fh or 0
+  local fh=math.floor((frame_h or h)*a.scale+.5);local frames=fh>0 and a.h//fh or 0
   if frames<2 then return false end
   local frame=math.floor(math.max(0,math.min(1,position))*(frames-1)+.5)
   local function px(v) return math.floor(v*scale+.5) end

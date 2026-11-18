@@ -69,6 +69,27 @@ local function frxst_of(cfg)
     and has('set master.mcp.volume h<148 [4 318 50 25 0 1 0 1] h<347 [49 90 22 246 0 0 0 1] [49 88 22 249 0 1 0 1]')
     and has('set master.mcp.mono h<290 [0] [12 138 35 25 0 1 0 1]') and true or false
 end
+-- Mydaw: an Ableton-style strip written as macros. Top rows hang from the top of the panel, the
+-- button column and name from the bottom, and the fader's triangle rides the right of a thin meter.
+local function mydaw_of(cfg)
+  local script=' '..cfg:gsub(';[^\r\n]*',''):gsub('\\%s*[\r\n]',' '):gsub('%s+',' ')..' '
+  local function has(s) return script:find(' '..s..' ',1,true) end
+  return has('set mcp.size [sp6{0} s380{0}]') and has('set mcp.extmixer.mode [0]')
+    and has('set low_ident * sp6{0} 0.33') and has('set meter_x * sp6{0} 0.66') and has('set low_button_y + maxfol_global{0} s321{0}')
+    and has('set mcp.fx [s4{0} fx_ident{0} s24{0} s15{0} 0 0 0 0]') and has('set fxbyp_x - sp6{0} s29{0}')
+    and has('set mcp.recinput h_maxind{x}<s100{0} [0] + button_position [s4{0} s7{0} wide_ctrl_w{0} s15{0} 0 0 0 0]')
+    and has('set mcp.io + button_position [s4{0} s45{0} wide_ctrl_w{0} s15{0} 0 0 0 0]')
+    and has('set mcp.meter [meter_x{0} meter_y{0} meter_w{0} meter_h{0} 0 0 0 1]')
+    and has('set mcp.volume [mcp_vol_x{0} mcp_y{0} s22{0} meter_h{0} 0 0 0 1]')
+    and has('set mcp.mute h_maxind{x}<s242{0} [0] + low_button_ident [low_ident{0} sm47{0} s25{0} s25{0} 0 1 0 1]')
+    and has('set mcp.phase h_maxind{x}<s214{0} [0] + low_button_ident [low_ident{0} sm18{0} s25{0} s15{0} 0 1 0 1]')
+    and has('set mcp.solo h_maxind{x}<s195{0} [0] + low_button_ident [low_ident{0} s1{0} s25{0} s15{0} 0 1 0 1]')
+    and has('set mcp.recarm h_maxind{x}<s176{0} [0] + low_button_ident [low_ident{0} s20{0} s25{0} s15{0} 0 1 0 1]')
+    and has('set mcp.label + mcpind [0 s359{0} label_w{0} s21{0} 0 1 0 1]')
+    and has('set master_chw s120{0}') and has('set master.mcp.meter [meter_x{0} meter_y{0} meter_w{0} meter_h{0} 0 0 0 1]')
+    and has('set master.mcp.mono h_maxind{x}<s176{0} [0] + low_button_ident [low_ident{0} s20{0} s25{0} s15{0} 0 1 0 1]')
+    and has('set s380 * Scale 380') and has('set sm47 * Scale -47') and true or false
+end
 local function layout_of(cfg)
   if cfg:sub(1,600):find('Reapertips',1,true) then
     -- v1.95 redesigned the mixer strip (new sizes and artwork, a sidebar option); v1.90 and earlier share the first layout.
@@ -117,6 +138,7 @@ local function layout_of(cfg)
     end
   end
   if not cfg:find('macro%s+drawMcp') and cfg:find('custom_mcp_paneltopleft',1,true) and frxst_of(cfg) then return 'frxst' end
+  if cfg:find('macro%s+drawDefaultMCP%s') and mydaw_of(cfg) then return 'mydaw' end
   if not cfg:find('macro%s+drawMcp') and cfg:find('set mcp_narrow',1,true) then
     local gray=gray80_of(cfg)
     if gray then return 'gray80',nil,nil,nil,nil,nil,gray end
@@ -142,6 +164,13 @@ local function finish(t, cfg, inis)
   t.row_height = math.max(12,math.min(26,row)); t.rtconfig = cfg; t.colors = colors
   t.layout,t.stock6,t.recarm_y,t.label_h,t.compact6,t.full_art,t.gray80 = layout_of(cfg)
   if t.layout=='frxst' then t.send_row_height = math.max(12,math.min(30,tonumber(cfg:match('set%s+mcp%.sendlist%.font%s+%[%s*%d+%s+(%d+)')) or 27)) end
+  if t.layout=='mydaw' then
+    t.row_height,t.send_row_height = 15,18 -- written as scaled variables in its script
+    -- Its 200% layout names the theme's Arial faces: bold 24 px labels, regular 20 px inserts, regular 24 px input.
+    t.font,t.fonts = 'Arial',{main={15,true},list={12.5},sends={15,true},header={15}}
+    -- Most of its mixer art exists only at one size; REAPER shows that pixel for pixel at any display scale.
+    t.unscaled_base = true
+  end
   if t.gray80 and t.gray80.send_row then t.send_row_height = math.max(12,math.min(26,t.gray80.send_row)) end
   -- Stock mixer faces are declared in the theme's serialized LOGFONT. Only the first
   -- null-terminated face is needed; ignore trailing bytes left from previous settings.
@@ -261,11 +290,11 @@ function M.asset(t,name,density)
           if data and write(path,data) then found = describe(path,v[2])
           elseif data then t.error = 'Cannot write the theme image cache: '..t.dir end
         end
-        if found then return found end
+        if found then if v[1] == '' and t.unscaled_base then found.scale = variants[1][2] end return found end
       end
     else
       local found = describe(join(t.dir,(v[1] ~= '' and v[1]..'/' or '')..name..'.png'),v[2])
-      if found then return found end
+      if found then if v[1] == '' and t.unscaled_base then found.scale = variants[1][2] end return found end
     end
   end
 end

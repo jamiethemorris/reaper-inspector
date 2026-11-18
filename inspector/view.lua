@@ -6,7 +6,7 @@ local M={};M.__index=M
 -- native mixer at 200%. It is this theme's layout written out, not a WALTER interpreter.
 local STRIP=86                              -- native strip width; wider panels widen the meter first
 local FONT='Fira Sans'
-local FONTS={main=11.5,list=12,header=14.5,bold=12}   -- gfx sizes that land on the theme's rendered text sizes
+local FONTS={main=11.5,list=12,header=14.5,bold=12,sends=12}   -- gfx sizes that land on the theme's rendered text sizes
 local ENV={[0]='mcp_env','mcp_env_read','mcp_env_touch','mcp_env_write','mcp_env_latch','mcp_env_preview'}
 local AUTOMODES={'Trim/Read','Read','Touch','Write','Latch','Latch preview'}
 local RECMODES={{0,'Record: input'},{1,'Record: output (stereo)'},{2,'Record: disable (input monitoring only)'},
@@ -72,7 +72,7 @@ end
 -- align: 0 left, 1 centred (falls back to left when the text is too wide), 2 right
 function M:text(text,x,y,w,h,c,font,align)
   local g,s=self.g,self.scale;text=tostring(text):gsub('[\r\n\t]',' ')
-  g.setfont(font=='list' and 2 or font=='header' and 3 or font=='bold' and 4 or 1)
+  g.setfont(font=='list' and 2 or font=='header' and 3 or font=='bold' and 4 or font=='sends' and 5 or 1)
   local flags=4
   if align==2 then flags=6 elseif align==1 and g.measurestr(text)<=w*s then flags=5 end
   g.set(c[1]/255,c[2]/255,c[3]/255,(c[4] or 255)/255);g.x=self:pxx(x);g.y=self:px(y)
@@ -165,7 +165,13 @@ function M:input_label(v)
     return 'MIDI: '..name..': '..(ch==0 and 'All channels' or 'Channel '..ch)
   end
   local i=v&1023
-  local function ch(n) local name=r.GetInputChannelName and r.GetInputChannelName(n);return name and name~='' and name or ('Input '..(n+1)) end
+  -- REAPER sometimes answers with no name for a moment; keep the last name it gave for that channel.
+  local known=self.root.input_names or {};self.root.input_names=known
+  local function ch(n)
+    local name=r.GetInputChannelName and r.GetInputChannelName(n)
+    if name and name~='' then known[n]=name end
+    return known[n] or ('Input '..(n+1))
+  end
   return (v&1024)~=0 and (ch(i)..' / '..ch(i+1)) or ch(i)
 end
 function M:input_menu(s)
@@ -973,6 +979,145 @@ function M:lowerfx(s,W,H,c)
     if muted then image('meter_mute',mxx+(mw-16)/2,fy0,16,16) end
   end
 end
+-- Mydaw strip (Ableton-style): FX row, input rows and routing hang from the top of the panel; the pan
+-- knob, button column and name hang from the bottom; the fader's triangle rides the right edge of a
+-- thin meter. Rectangles are the theme script's, which sizes everything from the strip's width.
+function M:lowermd(s,W,H,c)
+  local m,bm,T=self.model,self.bitmaps,c.T
+  local up=s.master and 8 or 0                            -- the master's bottom rows sit one folder step higher
+  local function B(v) return H-380-up+v end               -- the script's bottom-anchored rows
+  local dark={30,30,30}
+  local d=s.master and W-120 or 0                         -- the master is written for a fixed 120 pt
+  local function image(name,x,y,w,h) return bm and bm:draw(name,0,x+self.ox,y,w,h,self.scale,true) end
+  local function art(name,state,x,y,w,h)
+    return bm and (bm:draw('mcp_'..name,state,x+self.ox,y,w,h,self.scale,true)
+      or bm:draw('track_'..name,state,x+self.ox,y,w,h,self.scale,true))
+  end
+  local function button(id,name,x,y,w,h,action,menu)
+    local hover=inside({x=x,y=y,w=w,h=h},self.mx,self.my)
+    local state=hover and ((self.g.mouse_cap&1)~=0 and 2 or 1) or 0
+    if not art(name,state,x,y,w,h) then
+      local p=PLAIN['mcp_'..name] or {''}
+      self:rect(x,y,w,h,{78,78,78});self:rect(x+1,y+1,w-2,h-2,{200,200,200});self:text(p[1],x,y,w,h,dark,'main',1)
+    end
+    return self:hit(id,x,y,w,h,action,menu)
+  end
+  if not image(c.selected and 'mcp_bgsel' or 'mcp_bg',0,T,W,H-T) then self:rect(0,T,W,H-T,c.selected and {168,168,168} or {141,141,141}) end
+
+  -- FX row: button, bypass, and the blank holder that joins them
+  local fxon=s.I_FXEN~=0
+  image('track_fxholder',26,T+4,W-52,15)
+  button('FX',#s.fx==0 and 'fx_empty' or fxon and 'fx_norm' or 'fx_dis',4,T+4,24,15,
+    function() if #s.fx==0 then self:add_fx(s) else m:fx_chain(s) end end,function() self:fx_menu(s) end)
+  button('I_FXEN',#s.fx==0 and 'fxempty_v' or fxon and 'fxon_v' or 'fxoff_v',W-29,T+4,24,15,function() m:toggle(s,'I_FXEN') end)
+
+  -- Input, input FX / monitor / record mode, routing
+  local io='io'..(#s.sends>0 and '_s' or '')..((s.receives or 0)>0 and '_r' or '')..(s.B_MAINSEND==0 and '_dis' or '')
+  -- The input and routing fields are drawn for a 72 pt control, lettering included. At other widths only
+  -- the blank stretch between the lettering and the arrow gives; a field too narrow for that squeezes its left part.
+  local function field(name,x,y,w)
+    local hover=inside({x=x,y=y,w=w,h=15},self.mx,self.my)
+    local a,sx,sy,sw,sh
+    if bm then a,sx,sy,sw,sh=bm:frame(name,hover and ((self.g.mouse_cap&1)~=0 and 2 or 1) or 0,true) end
+    if not a then return false end
+    if a.margin[1]>0 or a.margin[3]>0 then return bm:draw(name,0,x+self.ox,y,w,15,self.scale,true) end -- guided art stretches itself
+    local k=sw/72;local c1,c2=math.floor(41*k+.5),math.floor(60*k+.5)
+    local left=math.min(41,w-12)
+    local X0,X1,X2,X3=self:pxx(x),self:pxx(x+left),self:pxx(x+w-12),self:pxx(x+w)
+    local Y,Hd=self:px(y),self:px(y+15)-self:px(y)
+    bm:blit(a,sx,sy,c1,sh,X0,Y,X1-X0,Hd,true)
+    bm:blit(a,sx+c1,sy,c2-c1,sh,X1,Y,X2-X1,Hd,true)
+    bm:blit(a,sx+c2,sy,sw-c2,sh,X2,Y,X3-X2,Hd,true)
+    return true
+  end
+  local function routing(x,y,w)
+    if not field('mcp_'..io,x,y,w) then self:rect(x,y,w,15,{78,78,78});self:rect(x+1,y+1,w-2,13,{213,213,213});self:text('I/O',x,y,w,15,dark,'main',1) end
+    self:hit('IO',x,y,w,15,function() self:show_routing(s) end,function() self:send_menu(s) end)
+  end
+  if s.master then
+    image('mixer_menu',4,T+31,16,15);image('render',W-20,T+31,16,15) -- the mixer's Menu and Render buttons; not controls here
+    local iw=math.min(72,W-44);routing((W-iw)/2,T+31,iw)
+  else
+    if not field('mcp_recinput',4,T+31,W-8) then art('recinput',0,4,T+31,W-8,15) end
+    self:text(self:input_label(s.I_RECINPUT),7,T+31,W-24,15,dark,'header',0)
+    self:hit('I_RECINPUT',4,T+31,W-8,15,function() self:input_menu(s) end)
+    button('INFX',(s.recfx or 0)>0 and 'fx_in_norm' or 'fx_in_empty',4,T+50,15,15,function() m:open_input_fx(s) end)
+    button('I_RECMON',s.I_RECMON==2 and 'monitor_auto' or s.I_RECMON==1 and 'monitor_on' or 'monitor_off',W/2-10,T+50,21,15,function() m:toggle(s,'I_RECMON') end)
+    local rm=math.floor(s.I_RECMODE)
+    button('I_RECMODE',rm==2 and 'recmode_off' or (rm==0 or rm==7 or rm==8 or rm==16) and 'recmode_in' or 'recmode_out',W-19,T+50,15,15,function()
+      local items={}
+      for _,mode in ipairs(RECMODES) do items[#items+1]={mode[2],function() m:set(s,'I_RECMODE',mode[1]) end,checked=rm==mode[1]} end
+      self:menu(items)
+    end)
+    routing(4,T+69,W-8)
+  end
+
+  -- Meter, with the fader's slot over its right-hand side
+  local roomy=W>74
+  local mw=s.master and 53+d or roomy and 15 or 11
+  local mx=s.master and 50 or W*.66-6
+  local vx=s.master and 99+d or mx+(roomy and 11 or 7)
+  local my,mh=T+110,B(356)-(T+110)
+  self.layout={T=T,S=my,B=my+mh,L=H-T,meter=mw>=6}
+  if mw>=6 then
+    self:rect(mx,my,mw,mh,{36,36,36})
+    -- The theme numbers every 6 dB, even on its 15 pt meter.
+    self:meter(s,{x=mx,y=my,w=mw,h=mh,first=0,last=60,step=6,readout_y=4,gap={89,89,89},loudness_bg={142,142,142},
+      readout_color={255,255,255},scale_color={255,255,255,155}},c.colors)
+  end
+  local thumb=bm and bm:get('mcp_volthumb',true)
+  local tw,th=13,18
+  if thumb then tw,th=thumb.w/thumb.scale,thumb.h/thumb.scale end
+  local ftop,fbottom=T+103+th/2,T+103+mh-th/2
+  local fy=fbottom-self.mapping.to_position(s.D_VOL)*(fbottom-ftop)
+  if thumb then bm:blit(thumb,thumb.x,thumb.y,thumb.w,thumb.h,self:pxx(vx+11-tw/2),self:px(fy-th/2),self:px(tw),self:px(th),true)
+  else self:rect(vx+5,fy-1,12,2,dark) end
+  local hit=self:hit('D_VOL',vx,T+103,22,mh)
+  hit.kind,hit.token,hit.top,hit.bottom,hit.fader_y='D_VOL',s,ftop,fbottom,fy
+
+  -- Left column: volume readout on top; pan, mute (with the track's number), polarity, solo, arm from the bottom
+  local x0=s.master and 13 or math.floor(W*.33*self.scale)/self.scale-12 -- REAPER drops the fraction of a pixel
+  local lx=s.master and 10.5 or W*.33-14.5
+  image('mcp_vol_label',lx,T+110,30,16)
+  self:text(gaintext(s.D_VOL),lx,T+110,30,16,dark,'main',1)
+  local function bar(key,stack,y)
+    local a=bm and bm:get(stack,true)                     -- frames are 15 image pixels tall at any display scale
+    if not (a and bm:stack(stack,(clamp(s[key] or 0,-1,1)+1)/2,x0+self.ox,y,25,17,self.scale,15/a.scale)) then
+      self:rect(x0,y,25,17,{78,78,78});self:rect(x0+1,y+1,23,15,{200,200,200})
+      self:rect(x0+12+clamp(s[key] or 0,-1,1)*10,y+2,1.5,13,dark)
+    end
+    self:pan_hit(s,key,x0,y,25,17,25)
+  end
+  if s.I_PANMODE>=5 then
+    local dual=s.I_PANMODE==6
+    bar(dual and 'D_DUALPANL' or 'D_PAN','mcp_pan_knob_stack_2',B(235))
+    bar(dual and 'D_DUALPANR' or 'D_WIDTH','mcp_wid_knob_stack_2',B(254))
+  elseif roomy or s.master then
+    local kx,ky=x0-7,B(227)
+    if not (bm and bm:knob_frame('mcp_pan_knob_stack_1',(clamp(s.D_PAN,-1,1)+1)/2,kx+19+self.ox,ky+19,self.scale,38)) then
+      self:pointer(s,kx+7,ky+7,24,dark,true)
+    end
+    self:pan_hit(s,'D_PAN',kx,ky,38,38)
+  else bar('D_PAN','mcp_pan_knob_stack_2',B(235)) end
+  -- The lit (amber) art is the unmuted state, as the theme names it.
+  button('B_MUTE',s.B_MUTE~=0 and 'mute_on' or 'mute_off',x0,B(274),25,25,function() m:toggle(s,'B_MUTE') end)
+  if not s.master then
+    self:text(('%d'):format(s.IP_TRACKNUMBER),x0,B(274),25,25,dark,'main',1)
+    button('B_PHASE',s.B_PHASE~=0 and 'phase_inv' or 'phase_norm',x0,B(303),25,15,function() m:toggle(s,'B_PHASE') end)
+  end
+  button('I_SOLO',s.I_SOLO~=0 and 'solo_on' or 'solo_off',x0,B(322),25,15,function() m:toggle(s,'I_SOLO') end)
+  if s.master then button('MONO',s.mono and 'mono' or 'stereo',x0,B(341),25,15,function() m:master_mono(s) end)
+  else button('I_RECARM',s.I_RECARM~=0 and 'recarm_on' or 'recarm_off',x0,B(341),25,15,function() m:toggle(s,'I_RECARM') end) end
+
+  -- Name: on a band of the track's colour blended into the panel, or the master's own band
+  if s.master then image('mcp_main_namebg',0,B(359),W,21)
+  elseif c.custom then
+    local g=c.selected and 168 or 141
+    self:rect(0,B(359),W-1,21,{c.base[1]*.59+g*.41,c.base[2]*.59+g*.41,c.base[3]*.59+g*.41})
+  end
+  self:text(s.name,5,B(359),W-9,21,{1,1,1},'main',s.master and 1 or 0)
+  if not s.master then self:hit('name',0,B(359),W,21).double=function() self:rename(s) end end
+end
 -- One mixer strip, drawn in its own coordinates (self.ox places it in the panel).
 function M:strip(s,W,H)
   local bm=self.bitmaps
@@ -985,6 +1130,7 @@ function M:strip(s,W,H)
   local v3=self.theme and self.theme.layout=='default7'
   local g80=self.theme and self.theme.layout=='gray80'
   local frx=self.theme and self.theme.layout=='frxst'
+  local md=self.theme and self.theme.layout=='mydaw'
   local stock6=self.theme and self.theme.stock6
   local compact6=stock6 and self.theme.compact6
   local base=v2 and {130,130,130} or {152,152,152}
@@ -1003,7 +1149,7 @@ function M:strip(s,W,H)
   local ntext=custom and tips and name_color(base) or {235,235,235}
   -- Vertical sections, bottom-anchored like a mixer strip. The theme hides the input row on short strips.
   -- v1.95 needs a taller strip before it shows its full input panel; the racks keep at least ~200 pt.
-  local L=v2 and clamp(H-200,300,430) or v3 and clamp(H-200,260,340) or g80 and clamp(H-200,260,450) or frx and math.min(292,H-72) or clamp(H-57,300,stock6 and 446 or 380)
+  local L=v2 and clamp(H-200,300,430) or v3 and clamp(H-200,260,340) or g80 and clamp(H-200,260,450) or frx and math.min(292,H-72) or md and clamp(H-200,300,380) or clamp(H-57,300,stock6 and 446 or 380)
   local showInFX=stock6 and L>=400
   local inh=showInFX and 54 or L>=350 and 42 or 22
   local label_h=stock6 and self.theme.label_h or 26
@@ -1017,14 +1163,14 @@ function M:strip(s,W,H)
   -- FX and send racks
   local row=self.theme and self.theme.row_height or 17
   local selected=not s.owner
-  local themed=bm and (stock6 or v3 or g80 or frx or bm.full_artwork)
+  local themed=bm and (stock6 or v3 or g80 or frx or md or bm.full_artwork)
   local srow=self.theme and self.theme.send_row_height or row -- 80gray's send rows are taller than its inserts
   if themed and not s.master and self.r.IsTrackSelected then selected=self.r.IsTrackSelected(s.track) end
   -- What REAPER puts under translucent mixer art: the track's colour, else the theme's panel colour.
   local under=custom and base or colors[selected and 'col_seltrack' or 'col_seltrack2'] or {73,75,78}
-  self:rect(0,0,W,T+1,bm and bm.full_artwork and under or v3 and {38,38,38} or {61,61,61})
+  self:rect(0,0,W,T+1,bm and (bm.full_artwork or md) and under or v3 and {38,38,38} or {61,61,61})
   -- theFRXST keeps its racks inside the strip: below the name bar, inset from the edges.
-  local Y0,RX,fullW=1,0,W
+  local Y0,RX,fullW=md and 0 or 1,0,W
   if frx then
     Y0,RX=23,5
     -- The strip is the track's colour seen through the theme's translucent background art,
@@ -1061,16 +1207,18 @@ function M:strip(s,W,H)
   local m=self.model
   -- Each list has its own background image under its cells (PhaseLab darkens only the inserts).
   -- Stock art is only a divider where the Inspector already draws one, so it is left out there.
-  local listbg=bm and (compact6 or bm.full_artwork)
-  if listbg and fxrows>0 then bm:draw('mcp_fxlist_bg',0,self.ox,Y0,W,fxrows*row,self.scale,true) end
+  local listbg=bm and (compact6 or md or bm.full_artwork)
+  -- Mydaw's lists stop short of the strip's right edge, where the backdrop shows as a thin line.
+  local edge=md and 1.5 or 0
+  if listbg and fxrows>0 then bm:draw('mcp_fxlist_bg',0,self.ox,Y0,W-edge,fxrows*row,self.scale,true) end
   for i=1,fxrows do
     local fx=s.fx[i+self.fx_offset];local y=Y0+(i-1)*row
     local art=fx and (fx.offline and 'mcp_fxlist_off' or fx.enabled and 'mcp_fxlist_norm' or 'mcp_fxlist_byp') or 'mcp_fxlist_empty'
     local hover=inside({x=0,y=y,w=W,h=row},self.mx,self.my)
-    self:sprite(art,hover and 1 or 0,-1,y,W-2,row)
+    self:sprite(art,hover and 1 or 0,md and .5 or -1,y,W-(md and 2.5 or 2),row)
     if fx then
       local c=fx.offline and col('mcp_fx_offlined',{156,58,58}) or fx.enabled and col('mcp_fx_normal',{216,216,216}) or col('mcp_fx_bypassed',{160,126,59})
-      self:text(fx.label or fx.name,7.5,y-.5,W-19.5,row,c,'list',1)
+      self:text(fx.label or fx.name,md and 4 or 7.5,y-.5,W-(md and 9 or 19.5),row,c,'list',md and 0 or 1)
       self:hit('fx'..i,0,y,W,row,function(cap)
         -- same modifiers as the mixer: Shift bypass, Alt delete, Cmd chain, Shift+Cmd offline, Alt+Shift(+Cmd) slot on selected (all) tracks
         local shift,cmd,alt=(cap&8)~=0,(cap&4)~=0,(cap&16)~=0
@@ -1099,7 +1247,7 @@ function M:strip(s,W,H)
     if send then
       local c=send.kind=='midi' and col('mcp_send_midihw',{70,185,254}) or send.mute and col('mcp_sends_muted',{228,94,101}) or col('mcp_sends_normal',{254,207,103})
       local knob=send.kind~='midi' and bm and bm:get('mcp_send_knob_stack')
-      self:text(send.name,6,y-.5,W-14-(knob and 15 or 0),srow,c,'list',0)
+      self:text(send.name,6,y-.5,W-14-(knob and 15 or 0),srow,c,'sends',0)
       if knob then
         -- One square frame per level; resized smoothly because the rack row is smaller than a frame.
         local frames=math.max(1,math.floor(knob.h/knob.w))
@@ -1138,6 +1286,7 @@ function M:strip(s,W,H)
   if frx then W=fullW;self.ox=self.ox-RX;self.mx=self.mx+RX end
   if frx then return self:lowerfx(s,W,H,{T=T,base=base,custom=custom,colors=colors,selected=selected}) end
   if v3 then return self:lower3(s,W,H,{T=T,L=L,base=base,custom=custom,colors=colors}) end
+  if md then return self:lowermd(s,W,H,{T=T,base=base,custom=custom,colors=colors,selected=selected}) end
   if g80 then return self:lower80(s,W,H,{T=T,base=base,custom=custom,colors=colors,selected=selected}) end
   if v2 then return self:lower2(s,W,H,{T=T,L=L,B=B,base=base,custom=custom,colors=colors,meter=meter}) end
 
@@ -1324,6 +1473,7 @@ function M:meter(s,m,colors)
   local bot=colors.col_vubot or {42,102,190};local midc=colors.col_vumid or {70,185,254}
   local top=colors.col_vutop or midc;local clip=colors.col_vuclip or {255,33,69}
   local bw=(m.w-.5)/2;local lit=m.y+m.h
+  if m.gap then self:rect(m.x+m.w/2-.5,m.y,1,m.h,m.gap) end -- a visible line between the two channels
   if self.peak==0 or not self.chpeak then self.chpeak={0,0} end
   for c=1,2 do
     self.chpeak[c]=math.max(self.chpeak[c],math.max(0,s.peaks[c] or 0))
@@ -1346,7 +1496,7 @@ function M:meter(s,m,colors)
     if self.held[c]>-62 then self:rect(x,ydb(self.held[c]),bw,.5,{200,225,255}) end
   end
   local armed=s.I_RECARM~=0
-  for d=6,(m.labels==false) and 0 or 54,12 do -- the theme prints bare numbers between two small ticks
+  for d=m.first or 6,(m.labels==false) and -1 or m.last or 54,m.step or 12 do -- the theme prints bare numbers between two small ticks
     local y=ydb(-d);local label=tostring(d)
     local c=y>lit and {0,0,0,170} or armed and {255,64,0} or m.scale_color or {255,255,255,60}
     self.g.setfont(4);local tw=self.g.measurestr(label)/self.scale
@@ -1374,7 +1524,10 @@ function M:meter(s,m,colors)
   if s.master and m.readout~=false and s.loudness and m.h>=80 then
     local mode=math.floor(s.vumode or 0)&30
     local label=(mode==12 and 'LUFS-M' or mode>=16 and 'LUFS-S' or 'RMS')..'  '..peaktext(s.loudness)
-    if fits(label,m.w-2) then self:text(label,m.x,m.y+m.h-14,m.w,13,m.loudness_color or rc,'bold',1) end
+    if fits(label,m.w-2) then
+      if m.loudness_bg then self:rect(m.x,m.y+m.h-12,m.w,12,m.loudness_bg) end -- the theme's own footer under the readout
+      self:text(label,m.x,m.y+m.h-(m.loudness_bg and 12.5 or 14),m.w,13,m.loudness_color or rc,'bold',1)
+    end
   end
   self:hit('meter',m.x,m.y,m.w,m.h,function() self.peak=0 end)
 end
@@ -1434,9 +1587,13 @@ function M:frame()
   local mac=os:match('^OSX') or os:match('^macOS')
   local scale=mac and density or 1
   local font=self.theme and self.theme.font or FONT
-  if scale~=self.scale or font~=self.font then
-    self.scale,self.font=scale,font
-    for i,role in ipairs({'main','list','header','bold'}) do g.setfont(i,font,math.floor(FONTS[role]*scale+.5),role=='bold' and 98 or 0) end
+  if scale~=self.scale or font~=self.font or self.font_theme~=self.theme then
+    self.scale,self.font,self.font_theme=scale,font,self.theme
+    local own=self.theme and self.theme.fonts or {}        -- a layout may name its theme's own sizes and weights
+    for i,role in ipairs({'main','list','header','bold','sends'}) do
+      local f=own[role] or {FONTS[role],role=='bold'}
+      g.setfont(i,font,math.floor(f[1]*scale+.5),f[2] and 98 or 0)
+    end
   end
   self.width=g.w/self.scale;self.height=g.h/self.scale
   self.mx=(g.mouse_x or 0)/self.scale;self.my=(g.mouse_y or 0)/self.scale
