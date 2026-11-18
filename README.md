@@ -2,7 +2,7 @@
 
 A dockable, single-selected-track Lua `gfx` inspector, independent of REAPER's mixer. Runtime dependencies: REAPER's built-in Lua/ReaScript and `gfx` only. No ReaImGui, SWS, JS extension, package installation, action registration by the script, or theme installation.
 
-**Verification status (0.3.0):** the single-strip layout was checked offline, pixel against pixel, with a screenshot of the native mixer strip (same width, same track state). That comparison uses a stand-in renderer (`tests/preview.py`), so it proves geometry and artwork handling, not REAPER's own text rendering, menus or control behaviour. 0.2.0 has been run in REAPER 7.86 on macOS; the 0.3.0 output strip and rename have **not yet been seen running in REAPER**. All 29 offline synthetic-host tests pass.
+**Verification status (0.4.0):** the Reapertips single-strip layout was checked offline, pixel against pixel, with a screenshot of the native mixer strip. That comparison uses a stand-in renderer (`tests/preview.py`), so it proves geometry and artwork handling, not REAPER's own text rendering, menus or control behaviour. 0.2.0 has been run in REAPER 7.86 on macOS; the output strip, rename, theme-archive reading, theme following and the plain fallback strip have **not yet been seen running in REAPER**. All 31 offline synthetic-host tests pass.
 
 ## Install
 
@@ -16,7 +16,7 @@ then install **Reaper Inspector** from Browse packages. It appears in the Action
 
 **Manually:** download the repository and follow the next section.
 
-The Reapertips theme artwork is not included and is never copied; you need the theme installed, unpacked (a `.ReaperTheme` file beside its image folder, not a `.ReaperThemeZip`).
+No theme artwork is included. The Inspector reads the artwork of the theme REAPER is using, from wherever it is installed.
 
 ## Load it yourself
 
@@ -24,7 +24,7 @@ Keep `Reaper Inspector.lua` beside the `inspector/` folder. In REAPER's Actions 
 
 The first window is 170 logical points wide by 700 high. The native strip is 86 points wide; at that width or more the layout never overlaps. Extra width goes to the meter first, then to space between fader and buttons. Below 86 points the meter is removed so the fader and buttons still fit (down to roughly 64). Extra height goes to the FX and send racks; the lower strip stays between 300 and 380 points tall and, like the theme, drops the input row on short strips. Escape, window close, the menu's Close entry or running the action again stops the inspector.
 
-Right-click on empty panel space for the Inspector's own menu: **Dock inspector**, **Show output strip**, **Load theme...**, **Use default theme**, **Close inspector**.
+Right-click on empty panel space for the Inspector's own menu: **Dock inspector**, **Show output strip**, **Load theme...**, **Follow REAPER's theme**, **Close inspector**.
 
 ## Renaming
 
@@ -45,26 +45,25 @@ Turn the strip off or on with **Show output strip** in the Inspector menu (right
 
 ## Theme and appearance
 
-Default source:
+By default the Inspector **follows the theme REAPER is using** and notices within about a second when you switch theme. **Load theme...** pins a particular theme instead (a `.ReaperTheme` file, a `.ReaperThemeZip` archive, or an unpacked asset folder containing `rtconfig.txt`); **Follow REAPER's theme** goes back to following. A theme that cannot be read keeps the current one and displays an error. Quotes, spaces and apostrophes are treated as path data, never executable text.
 
-```
-<REAPER resource folder>/ColorThemes/Reapertips Theme_Custom2.ReaperTheme
-```
+How closely it matches depends on the theme:
 
-(a personal copy of the Reapertips theme). If that file is not installed, the Inspector tries the theme REAPER is currently using, which works when it is an unpacked Reapertips theme; otherwise use **Load theme...**.
+| Theme | What you get |
+|---|---|
+| Reapertips (the stock theme and copies that keep its mixer panel) | The hand-made layout: the theme's own artwork, placed where the native mixer puts it. |
+| Anything else, including REAPER's Default 7 | The plain strip: the theme's own FX/send slot artwork and its text and meter colours, with the buttons, knob and fader drawn simply by the Inspector in the same arrangement. Every control works; it does not copy that theme's placement or button art. A hand-made Default 7 layout is planned. |
 
-Its `ui_img=Reapertips Theme_Custom2` resolves to the sibling uncompressed asset directory. Nothing in that directory is copied, installed or modified.
+**Theme archives** are read in place by a small built-in unzipper and are never modified. REAPER's drawing functions can only load images from files, so the images actually drawn (a few dozen) are copied on first use into the Inspector's own cache, `<REAPER resource folder>/Data/ReaperInspector/cache/<theme>-<fingerprint>/`. Each is checked against the archive's checksum first. The folder can be deleted at any time. A `.ReaperTheme` that points at an archive (how REAPER stores your colour tweaks to a zipped theme) is understood, and its colours win.
 
-**Load theme...** offers: an uncompressed `.ReaperTheme` file (its `ui_img` path resolved relative to the theme file unless absolute), an uncompressed asset folder containing `rtconfig.txt`, or the default Custom2 theme. A failed path keeps the current theme and displays an error. Quotes, spaces and apostrophes are treated as path data, never executable text. Compressed `.ReaperThemeZip` archives are unsupported.
-
-This is a **Reapertips-specific layout, not a generic WALTER engine**. The positions and sizes in `inspector/view.lua` are the theme's wide mixer strip written out by hand and confirmed against the native mixer. What is read from the theme at run time:
+The hand-made layout is **Reapertips-specific; there is no generic WALTER engine**. The positions and sizes in `inspector/view.lua` are the theme's wide mixer strip written out by hand and confirmed against the native mixer. What is read from the theme at run time:
 
 - The PNG artwork, at the 100/150/200% density matching the display.
 - Each PNG's guide border. Pink lines mark margins that must not stretch (so the input arrow, button caps and rounded slot ends keep their exact pixels and only the flat middle stretches). Yellow lines mark art that overhangs its control (knob shadow, the white selected-track line above the number footer). Sprites are drawn 1:1 with nearest sampling; nothing is resampled except the small send-level knob.
-- FX/send text colours and meter colours from the `.ReaperTheme` file (with the installed Custom2 values as fallback for an asset-folder source).
+- FX/send text colours and meter colours from the `.ReaperTheme` file (with built-in values as fallback for an asset-folder source).
 - The list row height from `rtconfig.txt`.
 
-Other themes can supply compatible named art but will not reproduce their own layout. Theme-adjuster settings are not read: the panel uses the theme's default dim amounts, which matched the native mixer in testing.
+Theme-adjuster settings are not read: the panel uses the theme's default dim amounts, which matched the native mixer in testing.
 
 Colour follows the theme's rules for a selected track: a track with a custom colour gets that colour on the pan/input panel and number footer (dimmed by the theme amounts, with the theme's tinted track-name colour); a track without one gets the theme's neutral grey. The Inspector always shows its track in the selected style, including the handle bar above the FX button and the white line above the number.
 
@@ -130,7 +129,9 @@ luac -p 'Reaper Inspector.lua' inspector/*.lua tests/*.lua
 python3 tests/asset_audit.py
 ```
 
-The Lua suite (29 tests) exercises the production modules with explicitly synthetic host/gfx APIs: read-only startup/selection, every click handler and menu path, guide-margin slicing, FX/send identity checks, volume endpoints and mapping, drag cancellation on selection/deletion/project switch, balanced Undo on exceptions, theme/path handling, docking/stop/rerun lifecycle, and layout at several widths, heights and densities.
+The Lua suite (31 tests) exercises the production modules with explicitly synthetic host/gfx APIs: read-only startup/selection, every click handler and menu path, guide-margin slicing, FX/send identity checks, volume endpoints and mapping, drag cancellation on selection/deletion/project switch, balanced Undo on exceptions, theme/path handling, docking/stop/rerun lifecycle, and layout at several widths, heights and densities.
+
+The Lua suite and the audit read the artwork of an installed copy of the Reapertips theme (`ColorThemes/Reapertips Theme_Custom2`), which is not in this repository; without it most tests cannot run.
 
 The Python stdlib audit decodes every installed PNG the Inspector can draw (48 sprites × 3 densities) and checks that no guide pixels sit inside the cropped art.
 

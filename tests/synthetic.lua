@@ -9,6 +9,11 @@ function M.host()
   h.ValidatePtr2=function(proj,t) return proj == h.project and t and t.valid end
   h.GetTrackGUID=function(t) assert(t.valid);return t.guid end
   h.GetTrackName=function(t) return true,t.name end
+  h.GetResourcePath=function() return os.getenv('HOME')..'/Library/Application Support/REAPER' end
+  h.GetLastColorThemeFile=function() return h.theme_file end
+  h.theme_file=h.GetResourcePath()..'/ColorThemes/Reapertips Theme_Custom2.ReaperTheme'
+  h.cache=(os.getenv('TMPDIR') or '/tmp'):gsub('/+$','')..'/reaper-inspector-tests'
+  h.RecursiveCreateDirectory=function(p) h.made=p;os.execute('mkdir -p "'..p..'"');return 1 end
   h.GetSetMediaTrackInfo_String=function(t,k,v,set)
     if k~='P_NAME' then return false,'' end
     if set then h.writes[#h.writes+1]={'name',t,v};t.name=v end

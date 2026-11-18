@@ -37,33 +37,51 @@ function M:stop(status)
   if self.view and self.view.bitmaps then self.view.bitmaps:clear() end
   self.g.quit()
 end
-function M:load_path(path)
-  local theme,err=Theme.resolve(path)
+function M:env()
+  local r=self.r
+  return {cache=r.GetResourcePath()..'/Data/ReaperInspector/cache',mkdir=function(p) r.RecursiveCreateDirectory(p,0) end}
+end
+function M:apply(theme,path,err)
   if not theme then self.view.options.status=err;self:put('error',err);return false,err end
   if self.view.bitmaps then self.view.bitmaps:clear();self.view.bitmaps=nil end
   self.theme=theme;self.theme_path=path;self.view.theme=theme;self.view.drag=nil
-  self.view.options.status='';self:put('theme',path,true);self:put('error','');return true
+  self.view.options.status='';self:put('error','');return true
+end
+-- A theme chosen by hand is remembered and stays until "Follow REAPER's theme" is chosen again.
+function M:load_path(path)
+  local theme,err=Theme.resolve(path,self:env())
+  local ok=self:apply(theme,path,err)
+  if ok then self.following=false;self:put('theme_choice',path,true) end
+  return ok,err
+end
+function M:current() return self.r.GetLastColorThemeFile and self.r.GetLastColorThemeFile() or '' end
+function M:follow()
+  self.following=true;self:put('theme_choice','',true)
+  local path=self:current();self.followed=path
+  if path=='' then return self:apply(nil,nil,'REAPER did not report its theme; use Load theme...') end
+  local theme,err=Theme.resolve(path,self:env())
+  return self:apply(theme,path,err)
 end
 function M:choose_theme()
-  local choice=self.g.showmenu('Choose .ReaperTheme...|Enter asset folder...|Use Reapertips Custom2 default')
+  local choice=self.g.showmenu("Choose theme file or archive...|Enter asset folder...|Follow REAPER's theme")
   if choice==1 then
-    local ok,path=self.r.GetUserFileNameForRead(self.theme_path or Theme.DEFAULT,'Inspector: choose uncompressed .ReaperTheme','ReaperTheme')
+    local ok,path=self.r.GetUserFileNameForRead(self.theme_path or '','Inspector: choose a .ReaperTheme or .ReaperThemeZip','')
     if ok then self:load_path(path) end
   elseif choice==2 then
-    local ok,path=self.r.GetUserInputs('Inspector asset folder',1,'Folder path:,extrawidth=360',self.theme and self.theme.dir or '')
+    local ok,path=self.r.GetUserInputs('Inspector asset folder',1,'Folder path:,extrawidth=360',self.theme and not self.theme.zip and self.theme.dir or '')
     if ok then self:load_path(path) end
-  elseif choice==3 then self:load_path(Theme.DEFAULT) end
+  elseif choice==3 then self:follow() end
 end
 function M:menu()
   local d=self.g.dock(-1)
   local out=self.view.options.output_strip~=false
-  local choice=self.g.showmenu(((d&1)~=0 and '!' or '')..'Dock inspector|'..(out and '!' or '')..'Show output strip||Load theme...|Use default theme|Close inspector')
+  local choice=self.g.showmenu(((d&1)~=0 and '!' or '')..'Dock inspector|'..(out and '!' or '')..'Show output strip||Load theme...|'..(self.following and '!' or '').."Follow REAPER's theme|Close inspector")
   if choice==1 then
     local nextdock=(d&1)~=0 and (d&(~1)) or (d|1)
     self.g.dock(nextdock);self:put('dock',nextdock,true);self.view.drag=nil
   elseif choice==2 then self:set_output(not out)
   elseif choice==3 then self:choose_theme()
-  elseif choice==4 then self:load_path(Theme.DEFAULT)
+  elseif choice==4 then self:follow()
   elseif choice==5 then self:stop() end
 end
 function M:set_output(on)
@@ -77,14 +95,12 @@ function M:start()
   self:put('owner',self.owner);self:put('stop','');self.r.atexit(function() self:stop() end)
   if self.r.set_action_options then self.r.set_action_options(1) end
   self.r.defer(function() end) -- suppress REAPER automatic undo on every entry/exit path
-  self.theme_path=self:get('theme');if self.theme_path=='' then self.theme_path=Theme.DEFAULT end
-  local err;self.theme,err=Theme.resolve(self.theme_path)
-  if not self.theme and self.theme_path==Theme.DEFAULT and self.r.GetLastColorThemeFile then
-    -- No Custom2 copy installed: try the theme REAPER is using (works when it is an unpacked Reapertips theme).
-    local current=self.r.GetLastColorThemeFile() or ''
-    local theme=current~='' and Theme.resolve(current)
-    if theme then self.theme,self.theme_path,err=theme,current,nil end
-  end
+  -- No saved choice means "use whatever theme REAPER is using", and keep up when it changes.
+  -- ('theme_choice', not the 'theme' key of 0.3 and earlier, which was saved without the user choosing.)
+  local saved=self:get('theme_choice');local err
+  self.following=saved=='';self.theme_path=self.following and self:current() or saved;self.followed=self.theme_path
+  if self.theme_path=='' then err='REAPER did not report its theme; use Load theme...'
+  else self.theme,err=Theme.resolve(self.theme_path,self:env()) end
   self.g.ext_retina=1
   local w=clamp(tonumber(self:get('width')) or 170,128,800)
   local h=clamp(tonumber(self:get('height')) or 700,430,1800)
@@ -97,6 +113,9 @@ function M:start()
 end
 function M:frame()
   if self.closed or not self:owned() then return false end
+  if self.following and self.frames%30==0 then -- about once a second: has REAPER switched theme?
+    if self:current()~=self.followed then self:follow() end
+  end
   local key=self.g.getchar()
   if key<0 or key==27 or self:get('stop')==self.owner then self:stop();return false end
   self.view:frame();self.frames=self.frames+1

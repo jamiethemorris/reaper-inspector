@@ -3,10 +3,12 @@ local tests, passed = {}, 0
 local function test(name, f) tests[#tests + 1] = {name, f} end
 local function eq(a,b) assert(a == b, tostring(a)..' ~= '..tostring(b)) end
 local root = './'
+-- The installed theme the Reapertips layout was built against; these tests read its real artwork.
+REAPERTIPS = os.getenv('HOME')..'/Library/Application Support/REAPER/ColorThemes/Reapertips Theme_Custom2.ReaperTheme'
 
 test('theme resolves installed ui_img and reads real PNG dimensions', function()
   local Theme = dofile(root..'inspector/theme.lua')
-  local t = assert(Theme.resolve(Theme.DEFAULT))
+  local t = assert(Theme.resolve(REAPERTIPS))
   eq(t.dir, os.getenv('HOME')..'/Library/Application Support/REAPER/ColorThemes/Reapertips Theme_Custom2')
   eq(t.row_height, 17)
   local p = assert(Theme.asset(t, 'mcp_recarm_off', 2))
@@ -53,7 +55,7 @@ test('explicit control handlers target only owner with bounded volume and balanc
 end)
 
 test('bitmap state cropping removes guide perimeter and selects real sprite axes', function()
-  local Theme=dofile('inspector/theme.lua');local theme=assert(Theme.resolve(Theme.DEFAULT))
+  local Theme=dofile('inspector/theme.lua');local theme=assert(Theme.resolve(REAPERTIPS))
   local g={dest=-1,x=0,y=0,images={},blits={}}
   g.loadimg=function(i,p) g.images[i]=p;return i end
   g.setimgdim=function() end
@@ -77,7 +79,7 @@ end)
 test('gfx frame uses installed bitmaps and click/drag dispatch keeps selection ownership', function()
   local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
   local Model=dofile('inspector/model.lua');local m=Model.new(h)
-  local Theme=dofile('inspector/theme.lua');local th=assert(Theme.resolve(Theme.DEFAULT))
+  local Theme=dofile('inspector/theme.lua');local th=assert(Theme.resolve(REAPERTIPS))
   local v=dofile('inspector/view.lua').new(h,g,m,th)
   v:frame();eq(v.scale,2);eq(#h.writes,0);assert(#g.blits>10);assert(v.bitmaps.count>6)
   assert(v.bitmaps.cache.mcp_idxbg_sel and v.bitmaps.cache.mcp_fxlist_empty,'footer and empty slots use the theme art')
@@ -117,7 +119,7 @@ end)
 
 test('pink guides fix sprite margins so the input arrow is never stretched', function()
   local fake=dofile('tests/synthetic.lua');local g=fake.gfx()
-  local Theme=dofile('inspector/theme.lua');local theme=assert(Theme.resolve(Theme.DEFAULT))
+  local Theme=dofile('inspector/theme.lua');local theme=assert(Theme.resolve(REAPERTIPS))
   local size=assert(Theme.asset(theme,'mcp_recinput',2))
   -- Synthetic perimeter shaped like the installed art: 3 px left margin, 27 px right and bottom.
   g.getpixel=function()
@@ -137,7 +139,7 @@ end)
 
 test('yellow overhang then pink margin: number footer art keeps its cap and is never stretched', function()
   local fake=dofile('tests/synthetic.lua');local g=fake.gfx()
-  local Theme=dofile('inspector/theme.lua');local theme=assert(Theme.resolve(Theme.DEFAULT))
+  local Theme=dofile('inspector/theme.lua');local theme=assert(Theme.resolve(REAPERTIPS))
   local size=assert(Theme.asset(theme,'mcp_idxbg_sel',2))
   g.getpixel=function()
     local w,h=size.width,size.height
@@ -167,7 +169,7 @@ end)
 test('uncoloured track uses the theme grey panel, coloured track its own colour', function()
   local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
   local Theme=dofile('inspector/theme.lua')
-  local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),assert(Theme.resolve(Theme.DEFAULT)))
+  local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),assert(Theme.resolve(REAPERTIPS)))
   local function has(r,gr,b)
     for _,c in ipairs(g.calls) do
       if c[1]=='set' and math.abs(c[2]*255-r)<.6 and math.abs(c[3]*255-gr)<.6 and math.abs(c[4]*255-b)<.6 then return true end
@@ -181,7 +183,7 @@ end)
 test('slot clicks and menus act only on the verified FX; empty slots open the chain', function()
   local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
   local Theme=dofile('inspector/theme.lua')
-  local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),assert(Theme.resolve(Theme.DEFAULT)))
+  local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),assert(Theme.resolve(REAPERTIPS)))
   v:frame()
   local function press(id,cap)
     local hit=assert(v.hits[id],id);g.mouse_x=(hit.x+hit.w/2)*v.scale;g.mouse_y=(hit.y+hit.h/2)*v.scale
@@ -232,7 +234,7 @@ end)
 test('send, routing, automation and input controls stay scoped to the inspected track', function()
   local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
   local Theme=dofile('inspector/theme.lua');local Model=dofile('inspector/model.lua');local m=Model.new(h)
-  local v=dofile('inspector/view.lua').new(h,g,m,assert(Theme.resolve(Theme.DEFAULT)))
+  local v=dofile('inspector/view.lua').new(h,g,m,assert(Theme.resolve(REAPERTIPS)))
   v:frame();local s=v.snapshot;local send=s.sends[1]
   eq(send.kind,'send');eq(send.name,'Reverb')
   assert(m:send_edit(s,send,'mute'));eq(h.send.mute,1)
@@ -257,7 +259,7 @@ test('a full rack shows a scrollbar and scrolls one row past the end to an empty
   local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
   h.GetOS=function() return 'macOS-arm64' end
   local Theme=dofile('inspector/theme.lua')
-  local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),assert(Theme.resolve(Theme.DEFAULT)))
+  local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),assert(Theme.resolve(REAPERTIPS)))
   g.ext_retina=2;g.w=244;g.h=1400;v:frame()
   local rows=v.fx_box.rows;assert(rows>=3)
   eq(v.fx_bar,nil);eq(v.send_bar,nil)                         -- one FX, one send: nothing to scroll
@@ -280,7 +282,7 @@ test('output strip: master by default, clicked send destination, parent folder, 
   h.GetOS=function() return 'macOS-arm64' end
   local Theme=dofile('inspector/theme.lua');local Model=dofile('inspector/model.lua');local m=Model.new(h)
   local set_calls={}
-  local v=dofile('inspector/view.lua').new(h,g,m,assert(Theme.resolve(Theme.DEFAULT)),{set_output=function(on) set_calls[#set_calls+1]=on end})
+  local v=dofile('inspector/view.lua').new(h,g,m,assert(Theme.resolve(REAPERTIPS)),{set_output=function(on) set_calls[#set_calls+1]=on end})
   local function size(w) g.ext_retina=2;g.w=w*2;g.h=1400;v:frame() end
   local function press(id,cap)
     local hit=assert(v.hits[id],id);g.mouse_x=(hit.x+hit.w/2)*v.scale;g.mouse_y=(hit.y+hit.h/2)*v.scale
@@ -331,7 +333,7 @@ test('double-clicking a track name renames that strip; the master has no rename'
   local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
   h.GetOS=function() return 'macOS-arm64' end
   local Theme=dofile('inspector/theme.lua')
-  local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),assert(Theme.resolve(Theme.DEFAULT)))
+  local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),assert(Theme.resolve(REAPERTIPS)))
   g.ext_retina=2;g.w=360;g.h=1400;v:frame()
   local asked,reply=0,nil
   h.GetUserInputs=function(_,_,_,current) asked=asked+1;eq(current,h.a.name);return reply~=nil,reply end
@@ -347,25 +349,78 @@ test('double-clicking a track name renames that strip; the master has no rename'
   eq(v.out_snapshot.track,h.master);eq(v.hits['out:name'],nil)
 end)
 
-test('default theme comes from the REAPER resource folder; if missing, the current theme is used', function()
+test('the Inspector follows the theme REAPER is using until one is chosen by hand', function()
   local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
-  local installed=dofile('inspector/theme.lua').DEFAULT
-  _G.reaper={GetResourcePath=function() return '/nonexistent/REAPER' end}
-  local ok,err=pcall(function()
-    eq(dofile('inspector/theme.lua').DEFAULT,'/nonexistent/REAPER/ColorThemes/Reapertips Theme_Custom2.ReaperTheme')
-    local App=dofile('inspector/app.lua')
-    local app=App.new(h,g);assert(app:start());assert(app.theme==nil and app.view.options.status~='');app:stop()
-    h.GetLastColorThemeFile=function() return installed end
-    app=App.new(h,g);assert(app:start());assert(app.theme);eq(app.theme_path,installed);eq(app.view.options.status,'');app:stop()
-  end)
-  _G.reaper=nil;assert(ok,err);eq(#h.writes,0)
+  local App=dofile('inspector/app.lua')
+  local zip='tests/fixtures/Zipped theme.ReaperThemeZip'
+  local app=App.new(h,g);assert(app:start());eq(app.following,true);eq(app.theme_path,REAPERTIPS);eq(app.theme.layout,'reapertips')
+  h.theme_file=zip
+  for _=1,31 do app:frame() end                                   -- REAPER switched theme: picked up within a second
+  eq(app.theme_path,zip);eq(app.theme.layout,'generic');eq(app.view.theme,app.theme)
+  h.theme_file='/nonexistent/Missing.ReaperTheme'
+  for _=1,31 do app:frame() end;assert(app.view.options.status~='','an unreadable theme reports an error')
+  eq(app.theme_path,zip)                                          -- and keeps the last good one
+  assert(app:load_path(REAPERTIPS));eq(app.following,false);eq(h.ext['ReaperInspector/theme_choice'],REAPERTIPS)
+  h.theme_file=zip;for _=1,31 do app:frame() end;eq(app.theme_path,REAPERTIPS)   -- a hand-picked theme stays
+  app:stop();app=App.new(h,g);assert(app:start());eq(app.following,false);eq(app.theme_path,REAPERTIPS)
+  g.menu=4;app:menu();eq(app.following,true);eq(app.theme_path,zip);eq(h.ext['ReaperInspector/theme_choice'],'')
+  assert(g.menus[#g.menus]:find("Follow REAPER's theme",1,true))
+  app:stop()
+  h.ext['ReaperInspector/theme']='/old/0.3/value.ReaperTheme'     -- the pre-0.4 key is ignored
+  h.theme_file=REAPERTIPS;app=App.new(h,g);assert(app:start());eq(app.following,true);eq(app.theme_path,REAPERTIPS);app:stop()
+  eq(#h.writes,0)
+end)
+
+test('theme archives: read in place, only requested images copied to the cache, checksums enforced', function()
+  local Theme=dofile('inspector/theme.lua');local Unzip=dofile('inspector/unzip.lua')
+  local fake=dofile('tests/synthetic.lua');local h=fake.host()
+  local env={cache=h.cache..'/zip',mkdir=function(p) os.execute('mkdir -p "'..p..'"') end}
+  os.execute('rm -rf "'..env.cache..'"')
+  local zip='tests/fixtures/Zipped theme.ReaperThemeZip'
+  local before=assert(io.open(zip,'rb')):read('a')
+  local t=assert(Theme.resolve(zip,env))
+  eq(t.row_height,21);eq(t.layout,'generic');eq(t.colors.mcp_fx_normal[1],1);eq(t.colors.mcp_fx_normal[3],3)
+  assert(t.dir:find(env.cache,1,true)==1 and t.dir:find('Zipped theme%-%x%x%x%x%x%x%x%x$'))
+  local a=assert(Theme.asset(t,'mcp_stored',2));eq(a.width,6);eq(a.height,4);eq(a.scale,2)
+  local d=assert(Theme.asset(t,'mcp_deflated',2));eq(d.width,40);eq(d.height,30);eq(d.scale,1)   -- only a 100% copy exists
+  eq(Theme.asset(t,'mcp_absent',2),nil)
+  eq(assert(io.open(a.path,'rb')):read('a'),assert(Unzip.read(t.zip,'Zipped_unpacked/200/mcp_stored.png')))
+  eq(Theme.asset(t,'mcp_stored',2).path,a.path)                                                -- second use reads the cached copy
+  -- a .ReaperTheme that points at the archive supplies colour overrides
+  local side=assert(Theme.resolve('tests/fixtures/Zipped theme.ReaperTheme',env))
+  eq(side.colors.mcp_fx_normal[1],9);eq(side.colors.mcp_sends_normal[1],4);eq(side.dir,t.dir)
+  local _,err=Theme.resolve(zip);assert(err:find('cache'))
+  -- damage is reported, never drawn
+  local bad=env.cache..'/bad.ReaperThemeZip';local at=before:find('IDAT',1,true)
+  local f=assert(io.open(bad,'wb'));f:write(before:sub(1,at+5)..string.char((before:byte(at+6)+1)%256)..before:sub(at+7));f:close()
+  local z=assert(Unzip.open(bad));local data,why=Unzip.read(z,'Zipped_unpacked/200/mcp_stored.png');eq(data,nil);assert(why:find('checksum'))
+  eq(Unzip.open('README.md'),nil)
+  eq(assert(io.open(zip,'rb')):read('a'),before)
+end)
+
+test('an unrecognised theme lends only its list cells; every control is still drawn and clickable', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  h.GetOS=function() return 'macOS-arm64' end
+  local Theme=dofile('inspector/theme.lua')
+  local theme=assert(Theme.resolve(REAPERTIPS));theme.layout='generic'   -- same art, treated as a stranger
+  local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),theme)
+  g.ext_retina=2;g.w=244;g.h=1400;v:frame()
+  local loaded={}
+  for _,p in pairs(g.images) do loaded[#loaded+1]=p:match('([^/]+)%.png$') end
+  assert(#loaded>0);for _,n in ipairs(loaded) do assert(n:find('^mcp_fxlist_') or n:find('^mcp_sendlist_'),n) end
+  eq(#v.bitmaps.missing,0)
+  local text={};for _,c in ipairs(g.calls) do if c[1]=='drawstr' then text[c[2]]=true end end
+  for _,label in ipairs({'M','S','rec','FX','I/O','trim'}) do assert(text[label],label) end
+  for _,id in ipairs({'B_MUTE','I_SOLO','I_RECARM','I_RECMON','FX','I_FXEN','D_VOL','D_PAN','I_AUTOMODE','fx1','output'}) do assert(v.hits[id],id) end
+  local hit=v.hits.B_MUTE;g.mouse_x=(hit.x+5)*2;g.mouse_y=(hit.y+5)*2;g.mouse_cap=1;v:frame();g.mouse_cap=0;v:frame()
+  eq(h.a.values.B_MUTE,1);eq(h.open,0)
 end)
 
 test('narrow panels drop the meter before controls can collide; double-click resets the fader', function()
   local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
   h.GetOS=function() return 'macOS-arm64' end
   local Theme=dofile('inspector/theme.lua')
-  local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),assert(Theme.resolve(Theme.DEFAULT)))
+  local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),assert(Theme.resolve(REAPERTIPS)))
   for _,width in ipairs({66,74,86,122,200}) do
     g.ext_retina=2;g.w=width*2;g.h=1400;v:frame()
     eq(v.layout.meter,width>=86);eq(v.hits.meter~=nil,width>=86)
@@ -397,7 +452,7 @@ test('theme paths are literal data including spaces/apostrophes and invalid load
   local app=dofile('inspector/app.lua').new(h,g);assert(app:start());local before=app.theme
   assert(not app:load_path('/not/a/theme'));eq(app.theme,before)
   g.menu=2;h.GetUserInputs=function() return true,"tests/fixtures/theme's [safe] assets" end
-  app:choose_theme();eq(app.theme.dir,theme.dir);eq(h.ext['ReaperInspector/theme'],theme.dir)
+  app:choose_theme();eq(app.theme.dir,theme.dir);eq(h.ext['ReaperInspector/theme_choice'],theme.dir)
   g.menu=1;app:menu();eq(g.dockstate&1,1);app:menu();eq(g.dockstate&1,0)
   eq(#h.writes,0);app:stop()
 end)
@@ -414,7 +469,7 @@ end)
 test('draw frame supports retina, nonretina, short viewport and read-only list scrolling', function()
   local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
   for i=2,30 do h.fx[i]={name='FX '..i,guid='{FX'..i..'}',enabled=true} end
-  local theme=assert(dofile('inspector/theme.lua').resolve(dofile('inspector/theme.lua').DEFAULT))
+  local theme=assert(dofile('inspector/theme.lua').resolve(REAPERTIPS))
   local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),theme)
   for _,size in ipairs({{170,700,2},{128,430,1},{240,900,1.5}}) do
     g.ext_retina=size[3];g.w=size[1]*size[3];g.h=size[2]*size[3];v:frame()
@@ -430,14 +485,14 @@ test('setter exceptions close undo blocks and held mouse at startup does not cli
   local m=dofile('inspector/model.lua').new(h);h.SetMediaTrackInfo_Value=function() error('synthetic failure') end
   assert(not m:set(m:snapshot(),'D_VOL',.5));eq(h.open,0)
   g.mouse_cap=1;g.mouse_x=260;g.mouse_y=830
-  local theme=assert(dofile('inspector/theme.lua').resolve(dofile('inspector/theme.lua').DEFAULT))
+  local theme=assert(dofile('inspector/theme.lua').resolve(REAPERTIPS))
   local v=dofile('inspector/view.lua').new(h,g,m,theme);v:frame();eq(#h.writes,0);assert(not v.drag)
 end)
 
 test('modified send sprites use integral rows and clamp last state within guide crop', function()
   local fake=dofile('tests/synthetic.lua');local g=fake.gfx()
   g.getpixel=function() return g.x==0 and 1 or .2,0,g.x==0 and 1 or .2 end
-  local Theme=dofile('inspector/theme.lua');local b=dofile('inspector/bitmaps.lua').new(g,assert(Theme.resolve(Theme.DEFAULT)),2)
+  local Theme=dofile('inspector/theme.lua');local b=dofile('inspector/bitmaps.lua').new(g,assert(Theme.resolve(REAPERTIPS)),2)
   for state=0,2 do b:draw('mcp_sendlist_norm',state,0,0,160,17,2) end
   eq(g.blits[1][5],1);eq(g.blits[1][7],32)
   eq(g.blits[2][5],33);eq(g.blits[2][7],32)
@@ -447,7 +502,7 @@ end)
 test('production UI handlers with synthetic clicks cover all controls and fader endpoints', function()
   local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
   local Model=dofile('inspector/model.lua');local Theme=dofile('inspector/theme.lua')
-  local v=dofile('inspector/view.lua').new(h,g,Model.new(h),assert(Theme.resolve(Theme.DEFAULT)));v:frame()
+  local v=dofile('inspector/view.lua').new(h,g,Model.new(h),assert(Theme.resolve(REAPERTIPS)));v:frame()
   local function point(id,cap)
     local hit=assert(v.hits[id]);g.mouse_x=(hit.x+hit.w/2)*v.scale;g.mouse_y=(hit.y+hit.h/2)*v.scale;g.mouse_cap=cap;v:frame()
   end
@@ -475,7 +530,7 @@ test('Apple Silicon macOS uses Retina framebuffer and native-sized controls', fu
   h.GetOS=function() return 'macOS-arm64' end
   g.ext_retina=2;g.w=414;g.h=1810
   local Theme=dofile('inspector/theme.lua')
-  local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),assert(Theme.resolve(Theme.DEFAULT)))
+  local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),assert(Theme.resolve(REAPERTIPS)))
   v:frame();eq(v.scale,2);eq(v.width,207);eq(v.height,905)
   eq(v.hits.B_MUTE.w*v.scale,42)
   eq(#h.writes,0)
@@ -485,7 +540,7 @@ test('tall docks give surplus height to lists, not an elongated fader', function
   local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
   h.GetOS=function() return 'macOS-arm64' end
   local Theme=dofile('inspector/theme.lua')
-  local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),assert(Theme.resolve(Theme.DEFAULT)))
+  local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),assert(Theme.resolve(REAPERTIPS)))
   local previous_rows=0
   for _,height in ipairs({700,905,1200}) do
     g.ext_retina=2;g.w=414;g.h=height*2;v:frame()

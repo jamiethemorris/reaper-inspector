@@ -1,11 +1,12 @@
 -- @description Reaper Inspector: dockable selected-track strip matching the Reapertips mixer
 -- @author jamiethemorris
--- @version 0.3.0
+-- @version 0.4.0
 -- @provides
 --   inspector/app.lua
 --   inspector/bitmaps.lua
 --   inspector/model.lua
 --   inspector/theme.lua
+--   inspector/unzip.lua
 --   inspector/view.lua
 -- @link https://github.com/jamiethemorris/reaper-inspector
 -- Keep the inspector/ directory beside this entrypoint. No extensions required.

@@ -43,7 +43,7 @@ class Gfx:
                          mouse_wheel=0, ext_retina=scale).items():
             t[k] = v
         for name in ('init dock set rect line setfont drawstr measurestr loadimg getimgdim getpixel setimgdim '
-                     'blit muladdrect update quit getchar showmenu triangle').split():
+                     'blit muladdrect update quit getchar showmenu triangle circle').split():
             t[name] = getattr(self, name)
         self.setfont(1, 'Fira Sans', 12 * scale, 0)
 
@@ -81,6 +81,11 @@ class Gfx:
     def line(self, x, y, x2, y2, aa=1):
         layer = Image.new('RGBA', self.target().size, (0, 0, 0, 0))
         ImageDraw.Draw(layer).line((round(x), round(y), round(x2), round(y2)), fill=self.rgba(), width=1)
+        self.target().alpha_composite(layer)
+
+    def circle(self, x, y, r, fill=0, aa=1):
+        layer = Image.new('RGBA', self.target().size, (0, 0, 0, 0))
+        ImageDraw.Draw(layer).ellipse((x - r, y - r, x + r, y + r), fill=self.rgba() if fill else None, outline=self.rgba())
         self.target().alpha_composite(layer)
 
     def triangle(self, *pts):
@@ -278,7 +283,10 @@ def main():
     r = host(lua, sc)
     run = lua.eval('''function(root, r, g, theme_path, out)
       local Theme, Model, View = dofile(root..'/inspector/theme.lua'), dofile(root..'/inspector/model.lua'), dofile(root..'/inspector/view.lua')
-      local theme, err = Theme.resolve(theme_path or Theme.DEFAULT)
+      local home = os.getenv('HOME')
+      theme_path = theme_path or home..'/Library/Application Support/REAPER/ColorThemes/Reapertips Theme_Custom2.ReaperTheme'
+      local cache = (os.getenv('TMPDIR') or '/tmp'):gsub('/+$', '')..'/reaper-inspector-preview'
+      local theme, err = Theme.resolve(theme_path, {cache = cache, mkdir = function(p) os.execute('mkdir -p "' .. p .. '"') end})
       assert(theme, err)
       local view = View.new(r, g, Model.new(r), theme, {output_strip = out ~= 'off'})
       view:frame()

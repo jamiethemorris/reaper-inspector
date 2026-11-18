@@ -86,10 +86,26 @@ end
 function M:sprite(name,state,x,y,w,h)
   return self.bitmaps and self.bitmaps:draw(name,state,x+self.ox,y,w,h,self.scale)
 end
+-- Labels and lit colours for controls drawn without theme art.
+local PLAIN={mcp_mute_off={'M'},mcp_mute_on={'M',{255,82,82}},mcp_solo_off={'S'},mcp_solo_on={'S',{255,214,64}},
+  mcp_recarm_off={'rec'},mcp_recarm_on={'rec',{255,70,70}},
+  mcp_monitor_off={'in'},mcp_monitor_on={'in',{120,220,120}},mcp_monitor_auto={'in',{255,190,90}},
+  mcp_phase_norm={'ø'},mcp_phase_inv={'ø',{255,190,90}},
+  mcp_fx_norm={'FX',{120,220,120}},mcp_fx_dis={'FX',{255,82,82}},mcp_fx_empty={'FX'},
+  track_fxon_v={'on',{120,220,120}},track_fxoff_v={'off',{255,82,82}},track_fxempty_v={'on'},
+  mcp_recmode_in={'in'},mcp_recmode_out={'out'},mcp_recmode_off={'off'},
+  mcp_env={'trim'},mcp_env_read={'read',{120,220,120}},mcp_env_touch={'touch',{255,214,64}},mcp_env_write={'write',{255,82,82}},
+  mcp_env_latch={'latch',{190,140,255}},mcp_env_preview={'prev',{110,190,255}}}
+for _,n in ipairs({'mcp_io','mcp_io_dis','mcp_io_r','mcp_io_r_dis','mcp_io_s','mcp_io_s_dis','mcp_io_s_r','mcp_io_s_r_dis'}) do PLAIN[n]={'I/O'} end
 function M:button(id,name,x,y,w,h,action,menu)
   local hover=inside({x=x,y=y,w=w,h=h},self.mx,self.my)
   local state=hover and ((self.g.mouse_cap&1)~=0 and 2 or 1) or 0
-  if not self:sprite(name,state,x,y,w,h) then self:rect(x,y,w,h,{70,70,70}) end
+  if not self:sprite(name,state,x,y,w,h) then -- no usable art for this theme: a plain labelled button
+    local p=PLAIN[name] or {''}
+    self:rect(x+1,y+1,w-2,h-2,state==2 and {30,30,30} or state==1 and {78,78,78} or {62,62,62})
+    self:rect(x+1,y+1,w-2,1,{255,255,255,20})
+    self:text(p[1],x,y,w,h,p[2] or {150,150,150},'main',1)
+  end
   return self:hit(id,x,y,w,h,action,menu)
 end
 -- items: {text,fn,checked=,sub=}; text '' is a separator. Returns after running the chosen fn.
@@ -380,7 +396,9 @@ function M:strip(s,W,H)
   self:rect(0,T+32,W,S-T-32,panel)
   self:rect(0,T+32,W,1,{255,255,255,22});self:rect(W-1,T+33,1,S-T-33,{255,255,255,22})
   local kx,ky=mid-12,T+39
-  self:sprite('mcp_pan_knob_large',0,kx,ky,24,24)
+  if not self:sprite('mcp_pan_knob_large',0,kx,ky,24,24) and self.g.circle then
+    self.g.set(.13,.13,.13,1);self.g.circle(self:pxx(kx+12),self:px(ky+12),self:px(11),1,1);self.g.a=1
+  end
   local dual=s.I_PANMODE==6
   do -- pointer: REAPER draws the knob position itself, the art is only the cap
     local g,sc=self.g,self.scale
@@ -401,7 +419,7 @@ function M:strip(s,W,H)
   if not dual then local hit=self:hit('D_PAN',kx-2,ky-2,28,40);hit.kind,hit.token='D_PAN',s end
   local ry=IN
   if inh>=42 and not s.master then
-    self:sprite('mcp_recinput',0,5,IN,W-11,16)
+    if not self:sprite('mcp_recinput',0,5,IN,W-11,16) then self:rect(5,IN,W-11,16,{28,28,28,150}) end
     self:text(self:input_label(s.I_RECINPUT),9,IN,W-30,16,{225,225,225},'main',0)
     self:hit('I_RECINPUT',5,IN,W-11,16,function() self:input_menu(s) end)
     ry=IN+20
@@ -431,11 +449,13 @@ function M:strip(s,W,H)
       bm:blit(bg,sx,bg.y,sw,cap_t,X,Y0,Wd,dt)
       bm:blit(bg,sx,bg.y+cap_t,sw,bg.h-cap_t-cap_b,X,Y0+dt,Wd,Y1-Y0-dt-dbm)
       bm:blit(bg,sx,bg.y+bg.h-cap_b,sw,cap_b,X,Y1-dbm,Wd,dbm)
-    end
+    else self:rect(fxl+9,ftop,3,fbot-ftop,{16,16,16}) end
     -- The 43 pt cap body travels the whole fader; the art carries 4 pt of padding above it.
     local top,bottom=ftop+21.5,fbot-21.5
     local fy=bottom-self.mapping.to_position(s.D_VOL)*(bottom-top)
-    if not self:sprite('mcp_volthumb',0,fxl-1,fy-25.5) then self:rect(fxl,fy-21.5,21,43,{170,170,170}) end
+    if not self:sprite('mcp_volthumb',0,fxl-1,fy-25.5) then
+      self:rect(fxl+1,fy-15,19,30,{150,150,150});self:rect(fxl+1,fy-15,19,1,{215,215,215});self:rect(fxl+1,fy-.5,19,1,{30,30,30})
+    end
     local hit=self:hit('D_VOL',fxl-2,ftop-4,25,fbot-ftop+8)
     hit.kind,hit.token='D_VOL',s
     hit.top,hit.bottom,hit.fader_y=top,bottom,fy

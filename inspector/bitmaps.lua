@@ -21,6 +21,9 @@ local function kind(r,g,b)
 end
 function M:get(name)
   if self.cache[name]~=nil then return self.cache[name] or nil end
+  -- Without a hand-made layout only the list cells are safe to borrow: every theme sizes and slices
+  -- its buttons, knobs and faders differently, so the view draws those itself.
+  if self.theme.layout=='generic' and not vertical[name] then self.cache[name]=false;return nil end
   local a=Theme.asset(self.theme,name,self.density)
   if not a then self.cache[name]=false;self.missing[#self.missing+1]=name;return nil end
   local g=self.g;local slot=self.count
