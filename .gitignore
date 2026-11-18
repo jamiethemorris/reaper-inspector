@@ -1,0 +1,6 @@
+# Local-only material: release zips, host receipts and screenshots of a private session
+dist/
+diagnostics/*
+!diagnostics/preview_0.3.0.png
+.DS_Store
+__pycache__/

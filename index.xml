@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<index version="1" name="Reaper Inspector">
+  <category name="Inspector">
+    <reapack name="Reaper Inspector.lua" type="script" desc="Reaper Inspector: dockable selected-track strip matching the Reapertips mixer">
+      <metadata>
+        <link rel="website">https://github.com/jamiethemorris/reaper-inspector</link>
+      </metadata>
+      <version name="0.3.0" author="jamiethemorris" time="2026-11-18T00:00:00Z">
+        <changelog><![CDATA[First public release: selected-track strip, FX and send racks with menus, output strip, track rename.]]></changelog>
+        <source main="main">https://github.com/jamiethemorris/reaper-inspector/raw/v0.3.0/Reaper%20Inspector.lua</source>
+        <source file="inspector/app.lua">https://github.com/jamiethemorris/reaper-inspector/raw/v0.3.0/inspector/app.lua</source>
+        <source file="inspector/bitmaps.lua">https://github.com/jamiethemorris/reaper-inspector/raw/v0.3.0/inspector/bitmaps.lua</source>
+        <source file="inspector/model.lua">https://github.com/jamiethemorris/reaper-inspector/raw/v0.3.0/inspector/model.lua</source>
+        <source file="inspector/theme.lua">https://github.com/jamiethemorris/reaper-inspector/raw/v0.3.0/inspector/theme.lua</source>
+        <source file="inspector/view.lua">https://github.com/jamiethemorris/reaper-inspector/raw/v0.3.0/inspector/view.lua</source>
+      </version>
+    </reapack>
+  </category>
+  <metadata>
+    <link rel="website">https://github.com/jamiethemorris/reaper-inspector</link>
+  </metadata>
+</index>
