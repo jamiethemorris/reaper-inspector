@@ -2,7 +2,7 @@
 
 A dockable, single-selected-track Lua `gfx` inspector, independent of REAPER's mixer. Runtime dependencies: REAPER's built-in Lua/ReaScript and `gfx` only. No ReaImGui, SWS, JS extension, package installation, action registration by the script, or theme installation.
 
-**Verification status (0.4.0):** the Reapertips single-strip layout was checked offline, pixel against pixel, with a screenshot of the native mixer strip. That comparison uses a stand-in renderer (`tests/preview.py`), so it proves geometry and artwork handling, not REAPER's own text rendering, menus or control behaviour. 0.2.0 has been run in REAPER 7.86 on macOS; the output strip, rename, theme-archive reading, theme following and the plain fallback strip have **not yet been seen running in REAPER**. All 31 offline synthetic-host tests pass.
+**Verification status (0.4.1):** the Reapertips single-strip layout was checked offline, pixel against pixel, with a screenshot of the native mixer strip. That comparison uses a stand-in renderer (`tests/preview.py`), so it proves geometry and artwork handling, not REAPER's own text rendering, menus or control behaviour. 0.2.0 has been run in REAPER 7.86 on macOS; 0.4.0 has been seen running in REAPER with Default 7 and Flat Madness (two strips, archive artwork, plain strip); rename and the other click behaviours added since 0.2.0 have **not yet been confirmed in REAPER**. All 32 offline synthetic-host tests pass.
 
 ## Install
 
@@ -129,7 +129,7 @@ luac -p 'Reaper Inspector.lua' inspector/*.lua tests/*.lua
 python3 tests/asset_audit.py
 ```
 
-The Lua suite (31 tests) exercises the production modules with explicitly synthetic host/gfx APIs: read-only startup/selection, every click handler and menu path, guide-margin slicing, FX/send identity checks, volume endpoints and mapping, drag cancellation on selection/deletion/project switch, balanced Undo on exceptions, theme/path handling, docking/stop/rerun lifecycle, and layout at several widths, heights and densities.
+The Lua suite (32 tests) exercises the production modules with explicitly synthetic host/gfx APIs: read-only startup/selection, every click handler and menu path, guide-margin slicing, FX/send identity checks, volume endpoints and mapping, drag cancellation on selection/deletion/project switch, balanced Undo on exceptions, theme/path handling, docking/stop/rerun lifecycle, and layout at several widths, heights and densities.
 
 The Lua suite and the audit read the artwork of an installed copy of the Reapertips theme (`ColorThemes/Reapertips Theme_Custom2`), which is not in this repository; without it most tests cannot run.
 

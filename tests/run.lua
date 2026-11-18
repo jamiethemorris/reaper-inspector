@@ -416,6 +416,25 @@ test('an unrecognised theme lends only its list cells; every control is still dr
   eq(h.a.values.B_MUTE,1);eq(h.open,0)
 end)
 
+test('cache folder names are plain ASCII whatever the archive is called, and a failed cache is reported', function()
+  local Theme=dofile('inspector/theme.lua')
+  local fake=dofile('tests/synthetic.lua');local h=fake.host()
+  local env={cache=h.cache..'/dash',mkdir=function(p) os.execute('mkdir -p "'..p..'"') end}
+  os.execute('rm -rf "'..env.cache..'"');env.mkdir(env.cache)
+  local zip=env.cache..'/Zipped \226\128\147 Th\195\168me.ReaperThemeZip'      -- en dash and an accent in the name
+  local f=assert(io.open(zip,'wb'));f:write(assert(io.open('tests/fixtures/Zipped theme.ReaperThemeZip','rb')):read('a'));f:close()
+  local previous=os.setlocale(nil,'ctype');os.setlocale('en_US.UTF-8','ctype')   -- as inside a desktop application
+  local ok,err=pcall(function()
+    local t=assert(Theme.resolve(zip,env))
+    assert(not t.dir:sub(#env.cache+1):find('[^A-Za-z0-9 _%-/]'),t.dir)
+    assert(Theme.asset(t,'mcp_stored',2),'image cached');eq(t.error,nil)
+    -- a cache that cannot be written says so instead of quietly losing the artwork
+    local stuck=assert(Theme.resolve(zip,{cache='/nonexistent/reaper-inspector',mkdir=function() end}))
+    eq(Theme.asset(stuck,'mcp_stored',2),nil);assert(stuck.error and stuck.error:find('cache'))
+  end)
+  os.setlocale(previous,'ctype');assert(ok,err)
+end)
+
 test('narrow panels drop the meter before controls can collide; double-click resets the fader', function()
   local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
   h.GetOS=function() return 'macOS-arm64' end

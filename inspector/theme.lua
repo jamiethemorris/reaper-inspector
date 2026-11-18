@@ -61,7 +61,7 @@ local function resolve_zip(path, zip_path, outer, env)
   end
   if not prefix then return nil, 'Theme archive has no rtconfig.txt' end
   local cfg, cerr = Unzip.read(zip, prefix..'rtconfig.txt'); if not cfg then return nil, cerr end
-  local base = (zip_path:match('([^/\\]+)$') or 'theme'):gsub('%.[^.]*$',''):gsub('[^%w%-_ ]','_')
+  local base = (zip_path:match('([^/\\]+)$') or 'theme'):gsub('%.[^.]*$',''):gsub('[^A-Za-z0-9%-_ ]','_') -- not %w: it follows the locale and can split UTF-8
   local dir = join(env.cache, base..'-'..zip.fingerprint)
   env.mkdir(dir)
   return finish({source=path, dir=dir, zip=zip, prefix=prefix}, cfg, {outer or '', inner or ''})
@@ -104,7 +104,8 @@ function M.asset(t,name,density)
         local found = describe(path,v[2])
         if not found then
           local data = Unzip.read(t.zip, entry.name)
-          if data and write(path,data) then found = describe(path,v[2]) end
+          if data and write(path,data) then found = describe(path,v[2])
+          elseif data then t.error = 'Cannot write the theme image cache: '..t.dir end
         end
         if found then return found end
       end

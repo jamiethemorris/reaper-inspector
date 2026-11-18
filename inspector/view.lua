@@ -257,6 +257,7 @@ function M:draw(s)
     self:rect(W1-.5,0,.5,H,{20,20,20})
   end
   local status=self.options.status
+  if (not status or status=='') and self.theme and self.theme.error then status=self.theme.error end
   if self.notice and self.r.time_precise()<self.notice.until_time then status=self.notice.text end
   if status and status~='' then
     self:rect(0,0,W,16,{20,20,20,235});self:text(status,3,0,W-6,16,{233,154,104},'main',0)
