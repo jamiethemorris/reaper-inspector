@@ -245,7 +245,7 @@ def host(lua, sc):
         GetTrackSendName=lambda t, i, *a: (True, tracks[t]['sends'][int(i)][0]),
         GetTrackSendInfo_Value=lambda t, cat, i, k: send(t, i, k),
         GetMIDIOutputName=lambda i, *a: (True, sc.get('midiout') or ''),
-        Track_GetPeakInfo=lambda t, c: tracks[t]['peaks'][int(c)],
+        Track_GetPeakInfo=lambda t, c: tracks[t]['peaks'][int(c)] if int(c) < 2 else max(tracks[t]['peaks']) * 0.5,
         TrackFX_GetCount=lambda t: len(tracks[t]['fx']),
         TrackFX_GetFXName=lambda t, i, *a: (True, tracks[t]['fx'][int(i)][0]),
         TrackFX_GetFXGUID=lambda t, i: '{FX%d}' % i,

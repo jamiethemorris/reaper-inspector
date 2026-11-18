@@ -293,6 +293,8 @@ test('output strip: master by default, clicked send destination, parent folder, 
   size(180);local o=assert(v.out_snapshot);eq(o.track,h.master);assert(o.master);eq(v.shown_main,true)
   assert(v.hits['out:D_VOL'] and v.hits['out:B_MUTE'] and v.hits['out:FX'] and v.hits['out:fx1'])
   for _,id in ipairs({'out:I_RECARM','out:I_RECMON','out:I_SOLO','out:I_RECINPUT','out:I_RECMODE','out:output'}) do eq(v.hits[id],nil) end
+  eq(v.hits['out:sendadd1'],nil);eq(v.hits['out:send1'],nil);eq(v.out.send_box.rows,0) -- the master strip shows inserts only
+  eq(o.loudness,h.Track_GetPeakInfo(h.master,1024));eq(o.mono,false);eq(v.snapshot.loudness,nil)
   assert(v.hits.D_VOL.x+v.hits.D_VOL.w<=90 and v.hits['out:D_VOL'].x>=90,'strips sit side by side')
   press('out:B_MUTE',1);eq(h.master.values.B_MUTE,1);eq(h.a.values.B_MUTE,0)
   local hit=v.hits['out:D_VOL'];g.mouse_x=(hit.x+hit.w/2)*2;g.mouse_y=hit.fader_y*2;g.mouse_cap=1;v:frame()
@@ -785,6 +787,72 @@ test('Default 7 gets its own strip, built from base art plus overlays, following
   for _,k in pairs(v.hits) do assert(k.y+k.h<=470+.01,k.id) end
   local hit=v.hits.INFX;g.mouse_x=(hit.x+5)*2;g.mouse_y=(hit.y+5)*2;g.mouse_cap=1;v:frame();g.mouse_cap=0;v:frame()
   eq(h.writes[#h.writes][1],'fx');eq(h.writes[#h.writes][3],0x1000000)   -- input FX chain
+end)
+
+test('80gray: every installed edition gets the theme\'s own rows, sizes and colours; a changed script stays generic', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  h.GetOS=function() return 'macOS-arm64' end
+  local Theme=dofile('inspector/theme.lua')
+  local home=os.getenv('HOME')..'/Library/Application Support/REAPER/ColorThemes/'
+  local env={cache=h.cache..'/g80',mkdir=function(p) os.execute('mkdir -p "'..p..'"') end}
+  for _,edition in ipairs({'Classic','D3','Everforest Light','MP Classic','MP Machine','MP Octagon','MP Pro','MP Ristretto','MP Spectrum'}) do
+    local t=assert(Theme.resolve(home..'80gray v2.2 '..edition..'.ReaperThemeZip',env))
+    eq(t.layout,'gray80');eq(t.row_height,14);eq(t.send_row_height,18)
+    for _,k in ipairs({'bg','bg_sel','idx','idx_sel','on_light','on_dark','bar','bar_sel','label','readout','line'}) do assert(t.gray80[k],edition..' '..k) end
+  end
+  local theme=assert(Theme.resolve(home..'80gray v2.2 Classic.ReaperThemeZip',env))
+  eq(theme.gray80.bg[1],45);eq(theme.gray80.bg_sel[1],57);eq(theme.gray80.bar_sel[1],211);eq(theme.gray80.bar[1],38)
+  eq(theme.param('p_mcp_indicator_width'),3);eq(theme.param('p_mcp_diagram_height'),16)
+  local light=assert(Theme.resolve(home..'80gray v2.2 Everforest Light.ReaperThemeZip',env));eq(light.gray80.bg[1],255);eq(light.gray80.label[1],92)
+  local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),theme,{output_strip=false})
+  local function at(w,hgt) g.ext_retina=2;g.w=w*2;g.h=hgt*2;g.blits={};g.calls={};v:frame() end
+  -- The theme's default 63 pt strip: every control where its script puts it.
+  at(63,700);eq(#v.bitmaps.missing,0)
+  local T,RS,RB=v.layout.T,v.layout.S,v.layout.B
+  eq(RS,T+44);eq(RB,700-16-16-4-16)
+  local k=v.hits
+  local function box(hit,x,y,w,hh) eq(hit.x,x);eq(hit.y,y);eq(hit.w,w);eq(hit.h,hh) end
+  box(k.FX,3.5,T+3,22,18);box(k.I_FXEN,25.5,T+3,13,18);box(k.I_AUTOMODE,40,T+4,22,18);box(k.B_PHASE,46,T+23,13,18)
+  box(k.D_PAN,2,T+24,41,14);box(k.B_MUTE,43,RS,18,18);box(k.I_SOLO,43,RS+18,18,18);box(k.IO,43,RS+37,20,20)
+  box(k.I_RECARM,45,RB-14,14,14);box(k.I_RECMON,45,RB-29,14,14);box(k.INFX,45,RB-44,14,14)
+  box(k.D_VOL,2,RS,16,RB-RS);box(k.meter,23,RS+1,17,RB-RS-2);eq(k.I_RECINPUT,nil)
+  local loaded={};for _,p in pairs(g.images) do loaded[p:match('([^/]+)%.png$')]=true end
+  for _,n in ipairs({'track_mute_off','track_solo_off','track_recarm_off','track_monitor_off','track_fx_in_empty','track_env','track_phase_norm','mcp_volbg','mcp_volthumb','mcp_panbg','mcp_panthumb','mcp_custom_meter_bg','mcp_diagram_dot'}) do assert(loaded[n],n) end
+  local routing;for n in pairs(loaded) do if n:match('^mcp_io') then routing=true end end;assert(routing)
+  -- Wider panels: controls keep their size; the right column follows the edge, the top pair stays centred.
+  for _,w in ipairs({63,86,122,200}) do
+    at(w,700);k=v.hits
+    eq(k.B_MUTE.x,w-20);eq(k.B_MUTE.w,18);eq(k.I_RECARM.x,w-18);eq(k.FX.x,-5+(w-46)/2);eq(k.meter.w,w-46)
+    local order={}
+    for _,id in ipairs({'FX','I_FXEN','I_AUTOMODE','B_PHASE','D_PAN','B_MUTE','I_SOLO','IO','I_RECARM','I_RECMON','INFX','D_VOL','meter','name'}) do order[#order+1]=assert(k[id],id) end
+    for i,a in ipairs(order) do
+      assert(a.x>=0 and a.x+a.w<=w+.01 and a.y+a.h<=700.01,a.id..' leaves the strip at '..w)
+      for j=i+1,#order do local b=order[j]
+        assert(a.x+a.w<=b.x or b.x+b.w<=a.x or a.y+a.h<=b.y or b.y+b.h<=a.y,a.id..' overlaps '..b.id..' at '..w)
+      end
+    end
+  end
+  -- Stereo and dual pan swap the slider for two knobs; send rows are taller than insert rows.
+  h.a.values.I_PANMODE=5;at(86,700);box(v.hits.D_PAN,-3+40/3,T+24,17,17);box(v.hits.D_WIDTH,12+40*.66,T+24,17,17)
+  h.a.values.I_PANMODE=6;at(86,700);assert(v.hits.D_DUALPANL and v.hits.D_DUALPANR);eq(v.hits.D_PAN,nil)
+  h.a.values.I_PANMODE=3;at(86,700)
+  eq(v.hits.fxadd2.y-v.hits.fx1.y,14);eq(v.hits.output.h,18)
+  local hit=v.hits.B_MUTE;g.mouse_x=(hit.x+5)*2;g.mouse_y=(hit.y+5)*2;g.mouse_cap=1;v:frame();g.mouse_cap=0;v:frame()
+  eq(h.writes[#h.writes][2],'B_MUTE');eq(#h.writes,1)
+  -- Master as the output strip: its own bottom rows, a solo button and a working mono switch; none on a track.
+  v.options.output_strip=true;at(200,700);k=v.hits
+  assert(k['out:I_SOLO'] and k['out:MONO'] and k['out:IO']);eq(k['out:B_PHASE'],nil);eq(k['out:name'],nil);eq(k.MONO,nil)
+  eq(k['out:MONO'].y,T+23);eq(k['out:MONO'].x,100+100-20)
+  eq(k['out:D_VOL'].h,(700-16-4-16)-RS)                       -- no routing-diagram row under the master
+  local before=#h.writes;h.commands={}
+  hit=k['out:MONO'];g.mouse_x=(hit.x+5)*2;g.mouse_y=(hit.y+5)*2;g.mouse_cap=1;v:frame();g.mouse_cap=0;v:frame()
+  eq(h.commands[#h.commands],40917);eq(#h.commands,1);eq(#h.writes,before)
+  assert(not dofile('inspector/model.lua').new(h):master_mono(v.snapshot),'only the master has a mono switch')
+  -- Recognised by its script, not its name: one changed size falls back to the generic strip.
+  local changed,n=theme.rtconfig:gsub('%[26 __y 18 18 0 0 0 0%]','[26 __y 20 18 0 0 0 0]')
+  assert(n>0);os.execute('mkdir -p "'..env.cache..'/changed"')
+  local f=assert(io.open(env.cache..'/changed/rtconfig.txt','w'));f:write(changed);f:close()
+  local other=assert(Theme.resolve(env.cache..'/changed',env));eq(other.layout,'generic');eq(other.gray80,nil);eq(other.send_row_height,nil)
 end)
 
 test('Theme Adjuster values are read live only while following REAPER\'s theme', function()

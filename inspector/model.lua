@@ -81,6 +81,10 @@ function M:read(p,t,guid)
   s.receives=r.GetTrackNumSends(t,-1)
   s.recfx=r.TrackFX_GetRecCount and r.TrackFX_GetRecCount(t) or 0
   s.peaks={r.Track_GetPeakInfo(t,0),r.Track_GetPeakInfo(t,1)}
+  if s.master then -- the master meter's loudness readout and the master mono switch
+    s.loudness=r.Track_GetPeakInfo(t,1024);s.vumode=r.GetMediaTrackInfo_Value(t,'I_VUMODE')
+    s.mono=r.GetToggleCommandStateEx~=nil and r.GetToggleCommandStateEx(0,40917)==1
+  end
   return s
 end
 local MAX_GAIN=10^(12/20)
@@ -140,6 +144,12 @@ function M:toggle(token,key)
   if not self:valid(token) or not toggles[key] then return false end
   local v=self.r.GetMediaTrackInfo_Value(token.track,key)
   return self:set(token,key,key=='I_RECMON' and (v+1)%3 or (v==0 and 1 or 0))
+end
+-- "Master track: Toggle stereo/mono (L+R)", the action behind the mixer's master mono button.
+function M:master_mono(token)
+  local r=self.r
+  if not self:valid(token) or not token.master or not r.Main_OnCommandEx then return false end
+  r.Main_OnCommandEx(40917,0,token.project);return true
 end
 -- FX slots are addressed by index, so the GUID is rechecked before every use.
 function M:fx_ok(token,fx)

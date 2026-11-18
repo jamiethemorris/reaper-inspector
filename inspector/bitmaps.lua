@@ -9,7 +9,12 @@ for name in ([[mcp_recarm_off mcp_recarm_on mcp_monitor_off mcp_monitor_on mcp_m
   mcp_fx_norm mcp_fx_empty mcp_fx_dis track_fxon_v track_fxoff_v track_fxempty_v
   mcp_recmode_in mcp_recmode_out mcp_recmode_off
   track_mute_off track_mute_on track_solo_off track_solo_on track_recarm_off track_recarm_on track_phase_norm track_phase_inv
-  track_fx_in_norm track_fx_in_empty mcp_fx_in_norm mcp_fx_in_empty]]):gmatch('%S+') do horizontal[name]=true end
+  track_fx_in_norm track_fx_in_empty mcp_fx_in_norm mcp_fx_in_empty
+  track_fx_norm track_fx_empty track_fx_dis track_fxon_h track_fxoff_h track_fxempty_h
+  track_env track_env_read track_env_touch track_env_write track_env_latch track_env_preview
+  track_monitor_off track_monitor_on track_monitor_auto
+  mcp_mono mcp_stereo mixer_menu
+  track_io track_io_dis track_io_r track_io_r_dis track_io_s track_io_s_dis track_io_s_r track_io_s_r_dis]]):gmatch('%S+') do horizontal[name]=true end
 local vertical={}
 local borrow={}
 for _,control in ipairs({'mute','solo'}) do

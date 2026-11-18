@@ -22,6 +22,37 @@ local function write(path, data)
   f:write(data); f:close(); return true
 end
 -- Which hand-made strip layout fits this theme. Anything unrecognised gets the generic arrangement.
+-- 80gray's mixer: a flat script (no macros) built from rows, with its colours written inline.
+-- Editions differ only in those colours, so they are read here and the geometry is recognised.
+local function gray80_of(cfg)
+  local script=' '..cfg:gsub(';[^\r\n]*',''):gsub('\\%s*[\r\n]',' '):gsub('%s+',' ')..' '
+  local function has(s) return script:find(' '..s..' ',1,true) end
+  if not (has('set mcp_narrow dw>60 0 1') and has('set row_top_height ?mcp_narrow 102 43')
+    and has('set row_bottom_height ?mcp_narrow 29 16') and has('set row_trackidx_height 16')
+    and has('set mcp.volume ?dw !mcp_volume_use_knob [2 row_slider 16 row_slider_height 0 0 0 1] 0 0')
+    and has('set mcp_meter_pos + [20 row_slider 23 row_slider_height 0 0 1 1] * rs 1')
+    and has('set mcp.mute !mcp_narrow + [26 __y 18 18 0 0 0 0] + * ls 1 * rs 1 .')
+    and has('set mcp.fx !mcp_narrow + [-5 __y 22 18 0 0 0 0] + * ls 0.5 * rs 0.5 .')
+    and has('set mcp.recarm !mcp_narrow + [28 __y 14 14 0 1 0 1] + * ls 1 * rs 1 .')
+    and has('set mcp.pan trackpanmode<=4 [2 __y __w 14 0 0 0 0] 0')) then return nil end
+  local rgb='%[(%d+) (%d+) (%d+)%]'
+  local function triple(r,g,b) if r then return {tonumber(r),tonumber(g),tonumber(b)} end end
+  local function two(pattern)
+    local a,b,c,d,e,f=script:match(pattern)
+    return triple(a,b,c),triple(d,e,f)
+  end
+  local t={}
+  t.bg,t.bg_sel=two(' set mcp_bg_color track_selected==0 '..rgb..' '..rgb..' ')
+  t.idx_sel,t.idx=two(' dynamiccolor mcp%.trackidx%.color "%?track_selected '..rgb..' '..rgb..'" ')
+  t.on_light,t.on_dark=two(' set element %?trackcolor_valid luma>=140 '..rgb..' '..rgb..' color ')
+  t.bar_sel,t.bar=two(' set mcp_indicator_color .- %?track_selected '..rgb..' '..rgb..' declare_custom_rect mcp%.custom%.rect2 ')
+  t.label=triple(script:match(' set mcp%.label%.color '..rgb..' '))
+  t.readout=triple(script:match(' set mcp%.meter%.readout%.color %[(%d+) (%d+) (%d+) '))
+  t.loudness=triple(script:match(' set mcp%.meter%.rmsreadout%.color '..rgb:sub(1,-3)..' 0%] '))
+  t.line=triple(script:match(' front mcp%.custom%.rect3 .- set __c '..rgb..' '))
+  t.send_row=tonumber(script:match(' set mcp%.sendlist%.font %[%d+ (%d+) '))
+  return t
+end
 local function layout_of(cfg)
   if cfg:sub(1,600):find('Reapertips',1,true) then
     -- v1.95 redesigned the mixer strip (new sizes and artwork, a sidebar option); v1.90 and earlier share the first layout.
@@ -69,6 +100,10 @@ local function layout_of(cfg)
       return 'generic',nil,nil,nil,nil,true
     end
   end
+  if not cfg:find('macro%s+drawMcp') and cfg:find('set mcp_narrow',1,true) then
+    local gray=gray80_of(cfg)
+    if gray then return 'gray80',nil,nil,nil,nil,nil,gray end
+  end
   return 'generic'
 end
 local function finish(t, cfg, inis)
@@ -88,7 +123,8 @@ local function finish(t, cfg, inis)
   -- Track panel colour under the mixer artwork (selected, unselected); optional, no built-in default.
   colors.col_seltrack, colors.col_seltrack2 = named('col_seltrack'), named('col_seltrack2')
   t.row_height = math.max(12,math.min(26,row)); t.rtconfig = cfg; t.colors = colors
-  t.layout,t.stock6,t.recarm_y,t.label_h,t.compact6,t.full_art = layout_of(cfg)
+  t.layout,t.stock6,t.recarm_y,t.label_h,t.compact6,t.full_art,t.gray80 = layout_of(cfg)
+  if t.gray80 and t.gray80.send_row then t.send_row_height = math.max(12,math.min(26,t.gray80.send_row)) end
   -- Stock mixer faces are declared in the theme's serialized LOGFONT. Only the first
   -- null-terminated face is needed; ignore trailing bytes left from previous settings.
   if t.stock6 or t.layout=='default7' then
@@ -107,6 +143,7 @@ local function finish(t, cfg, inis)
     if t.live and t.live[name] ~= nil then return t.live[name] end
     local literal = name:gsub('%p','%%%0') -- names such as "LayoutA-verboseMcp" contain pattern characters
     return tonumber(source:match('\ndefine_parameter%s+'..literal.."%s+'[^']*'%s+(%-?%d+)"))
+      or tonumber(source:match('\ndefine_parameter%s+'..literal..'%s+"[^"]*"%s+(%-?%d+)'))
   end
   -- Only mixer background channels use this fallback. An alias must be a single,
   -- unambiguous assignment to another setting; do not evaluate WALTER expressions.
