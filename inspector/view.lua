@@ -100,7 +100,31 @@ for _,n in ipairs({'mcp_io','mcp_io_dis','mcp_io_r','mcp_io_r_dis','mcp_io_s','m
 function M:button(id,name,x,y,w,h,action,menu)
   local hover=inside({x=x,y=y,w=w,h=h},self.mx,self.my)
   local state=hover and ((self.g.mouse_cap&1)~=0 and 2 or 1) or 0
-  if not self:sprite(name,state,x,y,w,h) then -- no usable art for this theme: a plain labelled button
+  local bm=self.bitmaps
+  local drawn
+  if bm and bm.theme.layout=='generic' then
+    if bm.full_artwork then drawn=bm:draw(name,state,x+self.ox,y,w,h,self.scale,true) end
+    if not drawn then drawn=bm:generic_button(name,state,x+self.ox,y,w,h,self.scale) end
+  elseif bm and bm.theme.compact6 and (id=='B_MUTE' or id=='B_PHASE') then
+    drawn=bm:draw(name,state,x+self.ox,y,w,h,self.scale,true)
+    if not drawn then
+      local track=name:gsub('^mcp_','track_')
+      local base=bm:get(track,true)
+      local overlay=bm:get(track..'_ol',true)
+      -- PhaseLab's 4x4 base is transparent; its glyph lives in the overlay.
+      if base and (base.w>=6 or overlay) then
+        bm:draw(track,state,x+self.ox,y,w,h,self.scale,true)
+      end
+      drawn=overlay and bm:draw(track..'_ol',state,x+self.ox,y,w,h,self.scale,true) or (base and base.w>=6)
+    end
+  else
+    drawn=self:sprite(name,state,x,y,w,h)
+    -- Overlay-built themes keep part of a control in a larger "_ol" image (PhaseLab's record-arm
+    -- surround, its solo glyph). Only art whose guide lines declare that reach is an overlay.
+    local ol=bm and bm.theme.stock6 and bm:get(name..'_ol',true)
+    if ol and ol.x==1 and bm:draw(name..'_ol',state,x+self.ox,y,w,h,self.scale,true) then drawn=true end
+  end
+  if not drawn then -- no usable art for this theme: a plain labelled button
     local p=PLAIN[name] or {''}
     self:rect(x+1,y+1,w-2,h-2,state==2 and {30,30,30} or state==1 and {78,78,78} or {62,62,62})
     self:rect(x+1,y+1,w-2,1,{255,255,255,20})
@@ -264,22 +288,134 @@ function M:draw(s)
   end
 end
 -- Pan pointer: REAPER draws the knob position itself, the art is only the cap.
-function M:pointer(s,kx,ky,size,color)
+function M:pointer(s,kx,ky,size,color,thin,value)
   local g,sc=self.g,self.scale
   size=size or 24;color=color or {178,178,178}
-  local ang=clamp(s.D_PAN,-1,1)*math.pi*.75-math.pi/2
+  local ang=clamp(value or s.D_PAN,-1,1)*math.pi*.75-math.pi/2
   local cx,cy=self:pxx(kx+size/2),self:px(ky+size/2)
   local dx,dy=math.cos(ang),math.sin(ang)
   g.set(color[1]/255,color[2]/255,color[3]/255,1)
-  local hw=sc -- half the 2 pt pointer width, in device pixels
-  local r1,r2=5.5*size/24,10*size/24
+  local hw=(thin and .45 or 1)*sc
+  local r1,r2=(thin and 2.5 or 5.5)*size/24,10*size/24
   local x1,y1,x2,y2=cx+dx*r1*sc,cy+dy*r1*sc,cx+dx*r2*sc,cy+dy*r2*sc
   if g.triangle then
     g.triangle(x1-dy*hw,y1+dx*hw,x1+dy*hw,y1-dx*hw,x2+dy*hw,y2-dx*hw,x2-dy*hw,y2+dx*hw)
+  elseif thin then g.line(x1,y1,x2,y2,1)
   else
     for o=-hw+.5,hw-.5 do g.line(x1-dy*o,y1+dx*o,x2-dy*o,y2+dx*o,1) end
   end
   g.a=1
+end
+local function pan_label(v)
+  local pct=math.floor(math.abs(v)*100+.5)
+  return pct==0 and 'center' or (pct..'%'..(v<0 and 'L' or 'R'))
+end
+function M:pan_hit(s,key,x,y,w,h,span)
+  local hit=self:hit(key,x,y,w,h)
+  hit.kind,hit.token,hit.pan_span=key,s,span
+end
+function M:pan_cap(name,cx,cy,fallback,last)
+  local bm=self.bitmaps
+  local w,h
+  if bm then w,h=bm:size(name,true) end
+  if not w and bm and fallback then name=fallback;w,h=bm:size(name,true) end
+  if not w and bm and last then name=last;w,h=bm:size(name,true) end
+  if w and h then bm:draw(name,0,cx-w/2+self.ox,cy-h/2,nil,nil,self.scale,true);return w end
+  if self.g.circle then
+    self.g.set(.2,.2,.2,1);self.g.circle(self:pxx(cx),self:px(cy),self:px(9),1,1)
+  end
+  return 20
+end
+-- A theme can supply the pan position as a stack of marker frames; REAPER then draws no line.
+function M:pan_marker(cx,cy,value,fit)
+  local bm=self.bitmaps;local p=(clamp(value,-1,1)+1)/2
+  return bm and (bm:knob_frame('mcp_pan_knob_stack',p,cx+self.ox,cy,self.scale,fit)
+    or bm:knob_frame('tcp_pan_knob_stack',p,cx+self.ox,cy,self.scale,fit))
+end
+function M:pan_knob7(s,cx,cy)
+  local size=self:pan_cap('mcp_pan_knob_small',cx,cy,'tcp_pan_knob_small','gen_knob_bg_small')
+  if self:pan_marker(cx,cy,s.D_PAN) then return end
+  self:pointer(s,cx-size/2,cy-size/2,size,{60,60,60},true)
+end
+function M:pan_dot(cx,cy,size,value)
+  local a=clamp(value,-1,1)*math.pi*.75-math.pi/2
+  self.g.set(.15,.15,.15,1)
+  if self.g.circle then self.g.circle(self:pxx(cx+size*.32*math.cos(a)),self:px(cy+size*.32*math.sin(a)),self:px(1),1,1) end
+end
+function M:width_marker(cx,cy,value)
+  local bm=self.bitmaps;local p=(value+1)/2
+  return bm and (bm:knob_frame('mcp_wid_knob_stack',p,cx+self.ox,cy,self.scale)
+    or bm:knob_frame('tcp_wid_knob_stack',p,cx+self.ox,cy,self.scale))
+end
+function M:width_ring(cx,cy,size,value)
+  local g=self.g;local r=size*.48
+  local function point(a) return self:pxx(cx+r*math.cos(a)),self:px(cy+r*math.sin(a)) end
+  g.set(.93,.72,.22,1)
+  local x,y=point(-math.pi/2)
+  for i=1,math.ceil(math.abs(clamp(value,-1,1))*24) do
+    local f=math.min(i/24,math.abs(value))
+    local xx,yy=point(-math.pi/2+f*(value<0 and -1 or 1)*math.pi*1.5)
+    g.line(x,y,xx,yy,1);x,y=xx,yy
+  end
+end
+-- The layouts supply the vertical anchors; selected and output strips share controls.
+function M:pan_pair(s,W,y,labelY,c,default7)
+  local bm=self.bitmaps
+  local stock=default7 or (self.theme and self.theme.stock6)
+  local generic=not self.theme or self.theme.layout=='generic'
+  local function art(name,x,yy,w,h)
+    return bm and (not generic or bm.full_artwork) and bm:draw(name,0,x+self.ox,yy,w,h,self.scale,true)
+  end
+  if s.I_PANMODE==6 then
+    local x,w=7,W-14
+    for i,key in ipairs({'D_DUALPANL','D_DUALPANR'}) do
+      local yy=y+(i-1)*10
+      if not art(i==1 and 'mcp_panbg' or 'mcp_widthbg',x,yy,w,9) then
+        self:rect(x,yy+3,w,4,{42,42,42})
+      end
+      local value=clamp(s[key],-1,1);local cx=x+5+(value+1)/2*(w-10)
+      if not art(i==1 and 'mcp_panthumb' or 'mcp_widththumb',cx-4,yy,8,9) then
+        self:rect(cx-3,yy,6,9,{170,170,170})
+      end
+      self:pan_hit(s,key,x,yy,w,10,w-10)
+      if labelY then self:text(pan_label(value),(i-1)*W/2,labelY,W/2,13,c,'main',1) end
+    end
+    return
+  end
+  local backing=default7 and bm and bm:get('mcp_width_knob_small',true)
+  -- The left half of the stock pill is yellow-guide overhang, not part of its hit target.
+  if backing and backing.w/backing.scale>30 and backing.w>=backing.h*1.75 then
+    local offset=(backing.over[1]-backing.over[3])/(2*backing.scale)
+    self:pan_cap('mcp_width_knob_small',W/2+offset,y+10)
+  else backing=nil end
+  for i,key in ipairs({'D_PAN','D_WIDTH'}) do
+    local cx=W/2+(i==1 and -1 or 1)*(default7 and 11 or (self.theme and self.theme.stock6 and 15.5 or 14))
+    local name=i==1 and 'mcp_pan_knob_small' or 'mcp_width_knob_small'
+    if i==1 and default7 then
+      self:pan_knob7(s,cx,y+10)
+    elseif i==2 and backing then
+      if not self:width_marker(cx,y+10,s[key]) then self:pan_dot(cx,y+10,11,s[key]) end
+    else
+      local size=self:pan_cap(name,cx,y+10,default7 and 'gen_knob_bg_small' or nil)
+      local marked
+      if i==2 then marked=self:width_marker(cx,y+10,s[key])
+      elseif self.theme and self.theme.compact6 then marked=self:pan_marker(cx,y+10,s[key])
+      elseif bm and bm.full_artwork then marked=self:pan_marker(cx,y+10,s[key],size) end
+      if not marked then
+        if i==2 and self.theme and (self.theme.layout=='reapertips2' or self.theme.layout=='reapertips' and not self.theme.stock6) then
+          self:width_ring(cx,y+10,size,s[key])
+        end
+        local color=i==2 and self.theme and self.theme.stock6 and {255,255,255} or stock and {55,55,55} or nil
+        self:pointer(s,cx-size/2,y+10-size/2,size,color,stock,s[key])
+      end
+    end
+    local hitW=default7 and 22 or 24
+    self:pan_hit(s,key,cx-hitW/2,y-1,hitW,22)
+    if labelY then
+      local label=i==1 and pan_label(s[key]) or ('%dW'):format(math.floor(s[key]*100+.5))
+      self:text(label,(i-1)*W/2,labelY,W/2,13,c,'main',1)
+    end
+  end
 end
 -- Reapertips v1.95 strip from the FX button down: the theme's own geometry (rtconfig drawMcp, wide
 -- mode, labels on, default Theme Adjuster values) in strip coordinates. `c` carries what the racks computed.
@@ -329,14 +465,14 @@ function M:lower2(s,W,H,c)
   self:sprite('custom_mcp_sel_gradient',0,0,P,W,50)
   self:rect(0,P,W,1,{255,255,255,22});self:rect(W-1,P+1,1,S-P-1,{255,255,255,22})
   local kx,ky=w/2-12,P+(labels and 18 or 16)-12
-  self:sprite('mcp_pan_knob_large',0,kx,ky,24,24)
-  self:pointer(s,kx,ky)
-  local dual=s.I_PANMODE==6
-  if labels then
-    local pan=math.floor(math.abs(s.D_PAN)*100+.5)
-    self:text(dual and 'dual pan' or pan==0 and 'center' or (pan..'%'..(s.D_PAN<0 and 'L' or 'R')),0,ky+24,w,18,ptext,'main',1)
+  if s.I_PANMODE==5 or s.I_PANMODE==6 then
+    self:pan_pair(s,W,ky+2,labels and ky+23 or nil,ptext)
+  else
+    self:sprite('mcp_pan_knob_large',0,kx,ky,24,24)
+    self:pointer(s,kx,ky)
+    if labels then self:text(pan_label(s.D_PAN),0,ky+24,w,18,ptext,'main',1) end
+    self:pan_hit(s,'D_PAN',kx-2,ky-2,28,labels and 40 or 28)
   end
-  if not dual then local hit=self:hit('D_PAN',kx-2,ky-2,28,labels and 40 or 28);hit.kind,hit.token='D_PAN',s end
   local function dropdown(x,y,dw)
     self:sprite('custom_mcp_dropdown_bg',0,x,y,dw,15)
     if dw>=40 then self:sprite('custom_mcp_dropdown_arrow',0,x+dw-12,y+3,8,8) end
@@ -473,18 +609,15 @@ function M:lower3(s,W,H,c)
 
   -- Pan section
   if panH>0 then
-    local dual=s.I_PANMODE==6
     local ptext=grey(bright<150 and 220 or 38)
     local ky=Y1+(verbose and 18 or 4);local kx=W/2-10
-    if verbose then
-      local pan=math.floor(math.abs(s.D_PAN)*100+.5)
-      self:text(dual and 'dual pan' or pan==0 and 'center' or (pan..'%'..(s.D_PAN<0 and 'L' or 'R')),6,Y1+2,W-12,16,ptext,'main',1)
+    if s.I_PANMODE==5 or s.I_PANMODE==6 then
+      self:pan_pair(s,W,ky,verbose and Y1+2 or nil,ptext,true)
+    else
+      if verbose then self:text(pan_label(s.D_PAN),6,Y1+2,W-12,16,ptext,'main',1) end
+      self:pan_knob7(s,W/2,ky+10)
+      self:pan_hit(s,'D_PAN',kx-2,ky-2,24,24)
     end
-    if not art('gen_knob_bg_small',0,kx,ky,20,20) and self.g.circle then
-      self.g.set(.13,.13,.13,1);self.g.circle(self:pxx(kx+10),self:px(ky+10),self:px(9),1,1);self.g.a=1
-    end
-    self:pointer(s,kx,ky,20,{60,60,60})
-    if not dual then local hit=self:hit('D_PAN',kx-2,ky-2,24,24);hit.kind,hit.token='D_PAN',s end
   end
 
   -- Meter, fader, record arm and monitor
@@ -569,18 +702,29 @@ function M:strip(s,W,H)
   local custom=s.color and s.color~=0
   local v2=self.theme and self.theme.layout=='reapertips2'
   local v3=self.theme and self.theme.layout=='default7'
+  local stock6=self.theme and self.theme.stock6
+  local compact6=stock6 and self.theme.compact6
   local base=v2 and {130,130,130} or {152,152,152}
   if custom then local r,g,b=self.r.ColorFromNative(math.floor(s.color)&0xFFFFFF);base={r,g,b} end
+  local tips=self.theme and self.theme.layout=='reapertips' and not stock6
   local panel,idx=mul(base,.8),mul(base,.75)
+  if custom and not (tips or stock6 or v2 or v3) then panel,idx=base,base end
+  if stock6 and custom then
+    -- Stock 6 uses a lighter selected treatment than Reapertips' dimmed track tint.
+    panel,idx={},{}
+    for i=1,3 do panel[i]=base[i]*.65+255*.35;idx[i]=base[i]*.35+255*.65 end
+  end
   local bright,dark=custom and {230,230,230} or {220,220,220},{23,23,23}
   local ptext=luma(panel)<=100 and bright or dark
   local itext=luma({idx[1]*.5+127.5,idx[2]*.5+127.5,idx[3]*.5+127.5})<=100 and bright or dark
-  local ntext=custom and name_color(base) or {235,235,235}
+  local ntext=custom and tips and name_color(base) or {235,235,235}
   -- Vertical sections, bottom-anchored like a mixer strip. The theme hides the input row on short strips.
   -- v1.95 needs a taller strip before it shows its full input panel; the racks keep at least ~200 pt.
-  local L=v2 and clamp(H-200,300,430) or v3 and clamp(H-200,260,340) or clamp(H-57,300,380)
-  local inh=L>=350 and 42 or 22
-  local T=H-L;local IN=T+83;local S=IN+inh;local B=H-47;local SH=B-S
+  local L=v2 and clamp(H-200,300,430) or v3 and clamp(H-200,260,340) or clamp(H-57,300,stock6 and 446 or 380)
+  local showInFX=stock6 and L>=400
+  local inh=showInFX and 54 or L>=350 and 42 or 22
+  local label_h=stock6 and self.theme.label_h or 26
+  local T=H-L;local IN=T+(stock6 and (L>=320 and 81 or 61) or 83);local S=IN+inh;local B=H-21-label_h;local SH=B-S
   local pad=SH<250 and 2 or SH<350 and 3 or 4
   local meter=W>=STRIP
   local extra=meter and clamp((W-STRIP)/2,0,20) or 0
@@ -589,7 +733,16 @@ function M:strip(s,W,H)
 
   -- FX and send racks
   local row=self.theme and self.theme.row_height or 17
-  self:rect(0,0,W,T+1,v3 and {38,38,38} or {61,61,61})
+  local selected=not s.owner
+  local themed=bm and (stock6 or v3 or bm.full_artwork)
+  if themed and not s.master and self.r.IsTrackSelected then selected=self.r.IsTrackSelected(s.track) end
+  -- What REAPER puts under translucent mixer art: the track's colour, else the theme's panel colour.
+  local under=custom and base or colors[selected and 'col_seltrack' or 'col_seltrack2'] or {73,75,78}
+  self:rect(0,0,W,T+1,bm and bm.full_artwork and under or v3 and {38,38,38} or {61,61,61})
+  if themed then
+    local function backing(name) return bm:draw(name,0,self.ox,0,W,T+1,self.scale,true) end
+    if not (selected and backing('mcp_extmixbgsel')) then backing('mcp_extmixbg') end
+  end
   local n=math.max(0,math.floor((T-6)/row))
   local sendrows=n>=4 and math.max(1,math.floor(n*.25+.5)) or n>=2 and 1 or 0
   -- The last send-rack row is pinned to the track's own output (master/parent send); the master has none.
@@ -610,6 +763,10 @@ function M:strip(s,W,H)
     self[id]={count=count,rows=rows}
   end
   local m=self.model
+  -- Each list has its own background image under its cells (PhaseLab darkens only the inserts).
+  -- Stock art is only a divider where the Inspector already draws one, so it is left out there.
+  local listbg=bm and (compact6 or bm.full_artwork)
+  if listbg and fxrows>0 then bm:draw('mcp_fxlist_bg',0,self.ox,1,W,fxrows*row,self.scale,true) end
   for i=1,fxrows do
     local fx=s.fx[i+self.fx_offset];local y=1+(i-1)*row
     local art=fx and (fx.offline and 'mcp_fxlist_off' or fx.enabled and 'mcp_fxlist_norm' or 'mcp_fxlist_byp') or 'mcp_fxlist_empty'
@@ -637,6 +794,7 @@ function M:strip(s,W,H)
   local sep=1+fxrows*row+.5
   if n>0 then self:rect(0,sep,W,1,{255,255,255,26}) end
   local sy=sep+3.5
+  if listbg and sendrows>0 then bm:draw('mcp_sendlist_bg',0,self.ox,sy,W,sendrows*row,self.scale,true) end
   for i=1,sendrows do
     local send=s.sends[i+self.send_offset];local y=sy+(i-1)*row
     local art=not send and 'mcp_sendlist_empty' or send.kind=='midi' and 'mcp_sendlist_midihw' or send.mute and 'mcp_sendlist_mute' or 'mcp_sendlist_norm'
@@ -684,38 +842,101 @@ function M:strip(s,W,H)
   if v3 then return self:lower3(s,W,H,{T=T,L=L,base=base,custom=custom,colors=colors}) end
   if v2 then return self:lower2(s,W,H,{T=T,L=L,B=B,base=base,custom=custom,colors=colors,meter=meter}) end
 
-  -- FX button row, with the selected-track handle along its top edge
+  -- Shared 6-style lower strip (also supplies the generic control arrangement).
+  -- Stock 6's section heights/anchors differ from Custom2's; both draw through the same bitmap adapter.
+  -- "Colour bar" themes (PhaseLab) paint the whole lower strip from the number tile's art, whose
+  -- guides make it overhang upward. As in the mixer it goes behind every control, over the mixer
+  -- background and the track's colour; the name bar and fader panel then cover their own areas.
+  local cover=false
+  if stock6 and bm then
+    local idxArt=selected and bm:get('mcp_idxbg_sel',true) and 'mcp_idxbg_sel' or 'mcp_idxbg'
+    local a=bm:get(idxArt,true)
+    if a and a.over[2]/a.scale>=H-21-T then
+      self:rect(0,T,W,H-T,under)
+      bm:draw(selected and bm:get('mcp_bgsel',true) and 'mcp_bgsel' or 'mcp_bg',0,self.ox,T,W,H-T,self.scale,true)
+      cover=bm:rise(idxArt,self.ox,T,H-21,20,W,self.scale)
+    end
+  end
+  -- What actually ended up on screen decides whether text over it is light or dark.
+  local function shade(x,y)
+    local g=self.g;local dest,gx,gy=g.dest,g.x,g.y
+    g.dest,g.x,g.y=-1,self:pxx(x),self:px(y)
+    local r,gg,b=g.getpixel()
+    g.dest,g.x,g.y=dest,gx,gy
+    return luma({r*255,gg*255,b*255})<=100 and bright or dark
+  end
+  if cover then
+    ptext,itext=shade(2,S-2),shade(2,H-10)
+    local label,panel_tone=bm:tone('mcp_vol_label'),bm:tone('mcp_volbg',true)
+    if panel_tone then self:rect(0,S,W,B-S,panel_tone) end
+    if label then self:rect(0,S,W,23,label) end
+    self:sprite('mcp_namebg',0,0,B,W,label_h)
+  elseif bm and bm.full_artwork then
+    -- The fader art is a strip-wide panel in these themes; its colour belongs behind the whole section.
+    local panel_tone=bm:tone('mcp_volbg',true)
+    if panel_tone then self:rect(0,S,W,B+label_h-S,panel_tone) end
+  end
   self:rect(0,T+.5,W,.5,{255,255,255,26})
-  self:rect(0,T+1,W,31,{51,51,51})
-  local handle=mul(idx,.94)
-  self:rect(0,T+1,W,4,handle);self:rect(0,T+1,W,1,{255,255,255,75});self:rect(0,T+4,W,1,{0,0,0,110})
+  if not cover then
+    self:rect(0,T+1,W,31,{51,51,51})
+    local handle=stock6 and {160,160,160} or mul(idx,.94)
+    self:rect(0,T+1,W,4,handle);self:rect(0,T+1,W,1,{255,255,255,75});self:rect(0,T+4,W,1,{0,0,0,110})
+  end
   local fxon=s.I_FXEN~=0
-  self:button('FX',#s.fx==0 and 'mcp_fx_empty' or fxon and 'mcp_fx_norm' or 'mcp_fx_dis',6,T+8,W-43,20,
+  self:button('FX',#s.fx==0 and 'mcp_fx_empty' or fxon and 'mcp_fx_norm' or 'mcp_fx_dis',6,T+8,W-(compact6 and 44 or 43),20,
     function() if #s.fx==0 then self:add_fx(s) else m:fx_chain(s) end end,function() self:fx_menu(s) end)
   self:button('I_FXEN',#s.fx==0 and 'track_fxempty_v' or fxon and 'track_fxon_v' or 'track_fxoff_v',W-37,T+8,29,20,
     function() m:toggle(s,'I_FXEN') end)
 
   -- Pan and input panel
-  self:rect(0,T+32,W,S-T-32,panel)
-  self:rect(0,T+32,W,1,{255,255,255,22});self:rect(W-1,T+33,1,S-T-33,{255,255,255,22})
-  local kx,ky=mid-12,T+39
-  if not self:sprite('mcp_pan_knob_large',0,kx,ky,24,24) and self.g.circle then
-    self.g.set(.13,.13,.13,1);self.g.circle(self:pxx(kx+12),self:px(ky+12),self:px(11),1,1);self.g.a=1
+  if not cover then
+    self:rect(0,T+32,W,S-T-32,panel)
+    if stock6 and bm and not s.master then
+      local shade=bm:pan_background(selected,32,S-T,self.ox,T+32,W,self.scale)
+      if shade then ptext=luma(shade)<=100 and bright or dark end
+    end
+    self:rect(0,T+32,W,1,{255,255,255,22});self:rect(W-1,T+33,1,S-T-33,{255,255,255,22})
   end
-  local dual=s.I_PANMODE==6
-  self:pointer(s,kx,ky)
-  local pan=math.floor(math.abs(s.D_PAN)*100+.5)
-  self:text(dual and 'dual pan' or pan==0 and 'center' or (pan..'%'..(s.D_PAN<0 and 'L' or 'R')),mid-30,T+66,60,12,ptext,'main',1)
-  if not dual then local hit=self:hit('D_PAN',kx-2,ky-2,28,40);hit.kind,hit.token='D_PAN',s end
+  local panArt=stock6 and 'mcp_pan_knob_small' or 'mcp_pan_knob_large'
+  if bm and bm.full_artwork and not bm:get(panArt,true) then panArt='mcp_pan_knob_small' end
+  local kw,kh
+  if stock6 and bm then kw,kh=bm:size(panArt) end
+  kw,kh=kw or (stock6 and 20 or 24),kh or (stock6 and 20 or 24)
+  local kx,ky=mid-kw/2,T+(stock6 and (L>=320 and 40 or 37) or 39)
+  if s.I_PANMODE==5 or s.I_PANMODE==6 then
+    self:pan_pair(s,W,ky,(not stock6 or L>=320) and T+66 or nil,ptext)
+  else
+    if not self:sprite(panArt,0,kx,ky,kw,kh) and self.g.circle then
+      self.g.set(.13,.13,.13,1);self.g.circle(self:pxx(kx+kw/2),self:px(ky+kh/2),self:px(kw/2-1),1,1);self.g.a=1
+    end
+    -- PhaseLab's marker dot and (in the artwork experiment) CSIX's whole knob face are stack frames.
+    -- The experiment has no native knob size to go by, so it fits the frame to the cap it draws.
+    if not ((compact6 or bm and bm.full_artwork) and self:pan_marker(kx+kw/2,ky+kh/2,s.D_PAN,not compact6 and kw or nil)) then
+      self:pointer(s,kx,ky+(kh-kw)/2,kw,stock6 and {75,75,75} or nil,stock6)
+    end
+    if not stock6 or L>=320 then self:text(pan_label(s.D_PAN),mid-30,T+66,60,12,ptext,'main',1) end
+    self:pan_hit(s,'D_PAN',kx-2,ky-2,kw+4,stock6 and math.min(IN-ky+2,40) or 40)
+  end
   local ry=IN
   if inh>=42 and not s.master then
     if not self:sprite('mcp_recinput',0,5,IN,W-11,16) then self:rect(5,IN,W-11,16,{28,28,28,150}) end
     self:text(self:input_label(s.I_RECINPUT),9,IN,W-30,16,{225,225,225},'main',0)
     self:hit('I_RECINPUT',5,IN,W-11,16,function() self:input_menu(s) end)
     ry=IN+20
+    if showInFX then
+      local art=(s.recfx or 0)>0 and 'mcp_fx_in_norm' or 'mcp_fx_in_empty'
+      local x,y,w,h=5,IN+16,W-11,12
+      local hover=inside({x=x,y=y,w=w,h=h},self.mx,self.my)
+      local state=hover and ((self.g.mouse_cap&1)~=0 and 2 or 1) or 0
+      self:sprite(art,state,x,y,w,h)
+      -- Stock 6 uses a transparent base and a separate caption overlay (falling back to its 150% art at 200%).
+      self:sprite(art..'_ol',state,x,y,w,h)
+      self:hit('INFX',x,y,w,h,function() m:open_input_fx(s) end)
+      ry=IN+32
+    end
   end
   local rm=math.floor(s.I_RECMODE)
-  if not s.master then self:button('I_RECMODE',rm==2 and 'mcp_recmode_off' or (rm==0 or rm==7 or rm==8 or rm==16) and 'mcp_recmode_in' or 'mcp_recmode_out',5,ry,42,16,function()
+  if not s.master then self:button('I_RECMODE',rm==2 and 'mcp_recmode_off' or (rm==0 or rm==7 or rm==8 or rm==16) and 'mcp_recmode_in' or 'mcp_recmode_out',5,ry,compact6 and 40 or 42,16,function()
     local items={}
     for _,mode in ipairs(RECMODES) do items[#items+1]={mode[2],function() m:set(s,'I_RECMODE',mode[1]) end,checked=rm==mode[1]} end
     self:menu(items)
@@ -723,6 +944,7 @@ function M:strip(s,W,H)
 
   -- Fader section: meter, volume readout, fader, button column
   local fxl=meter and 29+extra or 4          -- fader left edge
+  local fw=compact6 and 20 or 21
   local ftop,fbot=S+23,B
   if SH<=70 then
     self:text('Increase height',2,S+4,W-4,16,{120,120,120},'main',1)
@@ -734,29 +956,35 @@ function M:strip(s,W,H)
       local k=self.scale/bg.scale
       local sx,sw=bg.x+bg.over[1],bg.w-bg.over[1]-bg.over[3]
       local cap_t,cap_b=math.floor(10*bg.scale+.5),math.floor(9*bg.scale+.5)
-      local X,Wd,Y0,Y1=self:pxx(fxl),self:pxx(fxl+21)-self:pxx(fxl),self:px(ftop),self:px(fbot)
+      if stock6 or bm.full_artwork then -- the art's own guides: the track can live only in the stretch rows
+        cap_t=clamp(bg.margin[2],1,bg.h-2);cap_b=clamp(bg.margin[4],1,bg.h-cap_t-1)
+      end
+      local X,Wd,Y0,Y1=self:pxx(fxl),self:pxx(fxl+fw)-self:pxx(fxl),self:px(ftop),self:px(fbot)
       local dt,dbm=math.floor(cap_t*k+.5),math.floor(cap_b*k+.5)
       bm:blit(bg,sx,bg.y,sw,cap_t,X,Y0,Wd,dt)
       bm:blit(bg,sx,bg.y+cap_t,sw,bg.h-cap_t-cap_b,X,Y0+dt,Wd,Y1-Y0-dt-dbm)
       bm:blit(bg,sx,bg.y+bg.h-cap_b,sw,cap_b,X,Y1-dbm,Wd,dbm)
     else self:rect(fxl+9,ftop,3,fbot-ftop,{16,16,16}) end
-    -- The 43 pt cap body travels the whole fader; the art carries 4 pt of padding above it.
-    local top,bottom=ftop+21.5,fbot-21.5
+    -- Use the stock cap's measured size; preserve the existing v1.90 travel and art anchor.
+    local tw,th
+    if stock6 and bm then tw,th=bm:size('mcp_volthumb') end
+    local half=th and math.max(0,th/2-4) or 21.5
+    local top,bottom=ftop+half,fbot-half
     local fy=bottom-self.mapping.to_position(s.D_VOL)*(bottom-top)
-    if not self:sprite('mcp_volthumb',0,fxl-1,fy-25.5) then
+    if not self:sprite('mcp_volthumb',0,tw and fxl+(fw-tw)/2 or fxl-1,th and fy-th/2 or fy-25.5) then
       self:rect(fxl+1,fy-15,19,30,{150,150,150});self:rect(fxl+1,fy-15,19,1,{215,215,215});self:rect(fxl+1,fy-.5,19,1,{30,30,30})
     end
-    local hit=self:hit('D_VOL',fxl-2,ftop-4,25,fbot-ftop+8)
+    local hit=self:hit('D_VOL',fxl-2,ftop-4,fw+4,fbot-ftop+8)
     hit.kind,hit.token='D_VOL',s
     hit.top,hit.bottom,hit.fader_y=top,bottom,fy
     local bx=W-29;local y=S-17
-    if not s.master then self:button('I_RECARM',s.I_RECARM~=0 and 'mcp_recarm_on' or 'mcp_recarm_off',W-36,y,36,24,function() m:toggle(s,'I_RECARM') end) end
+    if not s.master then self:button('I_RECARM',s.I_RECARM~=0 and 'mcp_recarm_on' or 'mcp_recarm_off',compact6 and bx or W-36,y+(stock6 and self.theme.recarm_y or 0),compact6 and 20 or 36,compact6 and 20 or 24,function() m:toggle(s,'I_RECARM') end) end
     y=y+20+pad
     if not s.master then self:button('I_RECMON',s.I_RECMON==2 and 'mcp_monitor_auto' or s.I_RECMON==1 and 'mcp_monitor_on' or 'mcp_monitor_off',bx,y,21,20,function() m:toggle(s,'I_RECMON') end) end
     y=y+19+pad
-    self:button('B_MUTE',s.B_MUTE~=0 and 'mcp_mute_on' or 'mcp_mute_off',bx,y,21,20,function() m:toggle(s,'B_MUTE') end)
+    self:button('B_MUTE',s.B_MUTE~=0 and 'mcp_mute_on' or 'mcp_mute_off',bx,y,compact6 and 20 or 21,20,function() m:toggle(s,'B_MUTE') end)
     y=y+21+pad
-    if not s.master then self:button('I_SOLO',s.I_SOLO~=0 and 'mcp_solo_on' or 'mcp_solo_off',bx,y,21,20,function() m:toggle(s,'I_SOLO') end) end
+    if not s.master then self:button('I_SOLO',s.I_SOLO~=0 and 'mcp_solo_on' or 'mcp_solo_off',bx,y,compact6 and 20 or 21,20,function() m:toggle(s,'I_SOLO') end) end
     -- The theme drops routing, envelope and polarity in that order as the strip gets shorter.
     if SH>=106 then
       local io='mcp_io'..(#s.sends>0 and '_s' or '')..((s.receives or 0)>0 and '_r' or '')..(s.B_MAINSEND==0 and '_dis' or '')
@@ -776,12 +1004,19 @@ function M:strip(s,W,H)
   end
 
   -- Name and track number
-  self:text(s.name,2.5,B+.5,W-7,26,ntext,'header',1)
-  if not s.master then self:hit('name',0,B,W,26).double=function() self:rename(s) end end
-  self:rect(0,B+26,W,21,idx)
-  self:sprite('mcp_idxbg_sel',0,0,B+26,W,21)
-  self:rect(0,B+26,W,1,{255,255,255,22})
-  self:text(s.master and '' or ('%d'):format(s.IP_TRACKNUMBER),0,B+26,W-2,20,itext,'main',1)
+  self:text(s.name,2.5,B+.5,W-7,label_h,ntext,'header',1)
+  if not s.master then self:hit('name',0,B,W,label_h).double=function() self:rename(s) end end
+  if not cover then
+    self:rect(0,B+label_h,W,21,idx)
+    -- A full-strip layer in the footer image belongs behind the controls (the colour bar above);
+    -- it must never be composited here, after they have been drawn.
+    local footer=bm and (compact6 or bm.full_artwork) and bm:get('mcp_idxbg_sel',true)
+    if not footer or footer.over[2]/footer.scale<=label_h then
+      self:sprite('mcp_idxbg_sel',0,0,B+label_h,W,21)
+    end
+    self:rect(0,B+label_h,W,1,{255,255,255,22})
+  end
+  self:text(s.master and '' or ('%d'):format(s.IP_TRACKNUMBER),0,B+label_h,W-2,20,itext,'main',1)
 end
 -- Stereo peak meter on the theme's scale (+6 to -62 dB), with its dB marks and peak readout.
 function M:meter(s,m,colors)
@@ -847,7 +1082,8 @@ function M:input(s)
       local kind,tok=hit.kind,hit.token -- faders and pan knobs carry the track they belong to
       if kind and tok then
         if double then
-          self.model:set(tok,kind,kind=='D_VOL' and 1 or 0) -- like the mixer: double-click resets
+          local reset=({D_VOL=1,D_WIDTH=1,D_DUALPANL=-1,D_DUALPANR=1})[kind] or 0
+          self.model:set(tok,kind,reset)
         else
           self.drag={kind=kind,token=tok,hit=hit,x=self.mx,y=self.my,initial=tok[kind],
             offset=kind=='D_VOL' and math.abs(self.my-hit.fader_y)<22 and self.my-hit.fader_y or 0}
@@ -858,7 +1094,8 @@ function M:input(s)
   end
   if (cap&1)~=0 and self.drag then
     local d=self.drag;local fine=(cap&8)~=0 and .1 or 1;local value
-    if d.kind=='D_PAN' then value=d.initial+((self.mx-d.x)-(self.my-d.y))/50*fine
+    if d.hit.pan_span then value=d.initial+(self.mx-d.x)*2/d.hit.pan_span*fine
+    elseif d.kind~='D_VOL' then value=d.initial+((self.mx-d.x)-(self.my-d.y))/50*fine
     elseif fine<1 then value=self.mapping.to_gain(self.mapping.to_position(d.initial)+(d.y-self.my)/(d.hit.bottom-d.hit.top)*fine)
     else value=self.mapping.to_gain((d.hit.bottom-self.my+d.offset)/(d.hit.bottom-d.hit.top)) end
     if not self.model:set(d.token,d.kind,value) then self.drag=nil end
@@ -879,15 +1116,17 @@ function M:frame()
   local os=self.r.GetOS()
   local mac=os:match('^OSX') or os:match('^macOS')
   local scale=mac and density or 1
-  if scale~=self.scale then
-    self.scale=scale
-    for i,role in ipairs({'main','list','header','bold'}) do g.setfont(i,FONT,math.floor(FONTS[role]*scale+.5),role=='bold' and 98 or 0) end
+  local font=self.theme and self.theme.font or FONT
+  if scale~=self.scale or font~=self.font then
+    self.scale,self.font=scale,font
+    for i,role in ipairs({'main','list','header','bold'}) do g.setfont(i,font,math.floor(FONTS[role]*scale+.5),role=='bold' and 98 or 0) end
   end
   self.width=g.w/self.scale;self.height=g.h/self.scale
   self.mx=(g.mouse_x or 0)/self.scale;self.my=(g.mouse_y or 0)/self.scale
-  if self.theme and (not self.bitmaps or self.bitmaps.density~=density or self.bitmaps.theme~=self.theme) then
+  local full=self.theme and self.theme.layout=='generic' and (self.options.full_theme_artwork==true or self.theme.full_art==true)
+  if self.theme and (not self.bitmaps or self.bitmaps.density~=density or self.bitmaps.theme~=self.theme or self.bitmaps.full_artwork~=full) then
     if self.bitmaps then self.bitmaps:clear() end
-    self.bitmaps=Bitmaps.new(g,self.theme,density)
+    self.bitmaps=Bitmaps.new(g,self.theme,density,full)
   end
   local s=self.model:snapshot()
   if (s and s.guid)~=self.last_guid or (s and s.project)~=self.last_project then

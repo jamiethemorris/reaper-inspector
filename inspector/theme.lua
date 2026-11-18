@@ -27,8 +27,48 @@ local function layout_of(cfg)
     -- v1.95 redesigned the mixer strip (new sizes and artwork, a sidebar option); v1.90 and earlier share the first layout.
     return cfg:find('define_parameter%s+mcp_sidebar_w') and 'reapertips2' or 'reapertips'
   end
-  -- REAPER's Default 7 and themes built on its layout script.
-  if cfg:find('define_parameter%s+mcpStripFlowLocation1') and cfg:find('macro%s+drawMcp%s+thisLayout') then return 'default7' end
+  -- Detect the normal mixer form, not the optional narrow strip flow or the file name.
+  local mixer=('\n'..cfg):match('\n[ \t]*macro[ \t]+drawMcp[ \t]+thisLayout[^\r\n]*([%s%S]-)\n[ \t]*endmacro%f[%W]')
+  if mixer and mixer:find('mcpForm{0}==3',1,true)
+    and mixer:find('set%s+mcp%.custom%.sectionPan%s') and mixer:find('set%s+mcp%.custom%.sectionTop%s')
+    and mixer:find('Layout##thisLayout##-mcpNormalShowSecPan',1,true)
+    and mixer:find('Layout##thisLayout##-mcpNormalShowRoute',1,true) then
+    return 'default7'
+  end
+  -- Recognise the 6-style normal mixer, allowing only the verified small variations.
+  local body=('\n'..cfg:gsub(';[^\r\n]*','')):match('\n[ \t]*macro[ \t]+drawMcp[ \t]+scale[ \t]*[\r\n]+([%s%S]-)\n[ \t]*endmacro%f[%W]')
+  if body then
+    local script=' '..body:gsub('\\%s*[\r\n]',' '):gsub('%s+',' ')..' '
+    local function has(s) return script:find(' '..s..' ',1,true) end
+    local recarm_y=tonumber(script:match(' set mcp%.recarm %+ %* scale %[0 (%-?%d+) 36 24%] %?narrowMode{0} '))
+    local label_h=tonumber(script:match(' %[0 0 %-14 27%] %[0 0 0 (%d+)%] %[0 bot_sec mcp%.size{0}%] '))
+    if (label_h==26 or label_h==27)
+      and has('set fx_sec + [sidebar_sec{2} 0 mcp.size{0}] * scale [0 0 0 33]')
+      and has('set pan_sec + [sidebar_sec{2} fx_sec{3} mcp.size{0}] * scale !panLabelsMode{0} h<hide_pan_s{0} [0 0 0 6] [0 0 0 28] [0 0 0 48]') then
+      local fx='set mcp.fx + [fx_sec 0 nchan_offs_twothird{0}] * scale ?narrowMode{0} [4 7 28 20] [7 7 '
+      local vol='set mcp.volume ?narrowMode{0} + - + [stretch_sec stretch_sec] [nchan_offs_half stretch_sec{3}] * scale [-4 21] * scale [0 0 '
+      local mute='set mcp.mute + + [0 padding] [mcp.recmon mcp.recmon] * scale [0 19 '
+      local solo='set mcp.solo + + [0 padding] [mcp.mute mcp.mute] * scale [0 21 '
+      if (recarm_y==0 or recarm_y==-2) and has(fx..'43 20]') and has(vol..'21 21]')
+        and has(mute..'21 20]') and has(solo..'21 20]') and has('* scale [0 16 75 12]') then
+        return 'reapertips',true,recarm_y,label_h
+      end
+      -- Verified compact 6-style geometry (PhaseLab 1.3/2.0), not a filename alias.
+      if label_h==27 and has(fx..'42 20]') and has(vol..'20 20]')
+        and has(mute..'20 20]') and has(solo..'20 20]') and has('* scale [0 16 76 12]')
+        and has('set mcp.recarm + * scale [0 0 20 20] ?narrowMode{0} - + [mcp.meter{2}] [stretch_sec stretch_sec] * scale [-8 16] + - [stretch_sec stretch_sec] * scale [-36 16] [mcp.meter{2}]')
+        and has('set mcp.recmon + + [0 padding] [mcp.recarm mcp.recarm] * scale [0 19 21 20]') then
+        return 'reapertips',true,1,label_h,true
+      end
+    end
+    -- CSIX-BASIC: a 6-derived mixer with its own geometry. It keeps the generic arrangement but
+    -- its artwork is known to fit it, so it is loaded without the experimental switch.
+    if has('set pan_sec + [sidebar_sec{2} fx_sec{3} mcp.size{0}] * scale !panLabelsMode{0} h<hide_pan_s{0} [0 0 0 0] [0 0 0 36] [0 0 0 45]')
+      and has('set mcp.fx + [fx_sec 0 nchan_offs_twothird{0}] * scale ?narrowMode{0} [4 8 28 20] [5 8 37 20]')
+      and has('set mcp.recmon !recSec{0} [0] + + [0 padding] [mcp.recarm mcp.recarm] * scale [9 20 21 20]') then
+      return 'generic',nil,nil,nil,nil,true
+    end
+  end
   return 'generic'
 end
 local function finish(t, cfg, inis)
@@ -36,23 +76,67 @@ local function finish(t, cfg, inis)
     or tonumber(cfg:match('set%s+mcp%.fxlist%.font[^\r\n]-%[%s*%d+%s+(%d+)')) or 17
   -- List/meter text colours live in the .ReaperTheme (0x00BBGGRR); the first file that names a colour wins.
   local colors = {}
-  for key,fallback in pairs(M.COLORS) do
+  local function named(key)
     local n
     for _,ini in ipairs(inis) do
       n = tonumber(ini:match('[\r\n]'..key..'%s*=%s*(-?%d+)'))
       if n then break end
     end
-    if n then n = n & 0xFFFFFF; colors[key] = {n & 255, (n >> 8) & 255, (n >> 16) & 255} else colors[key] = fallback end
+    if n then n = n & 0xFFFFFF; return {n & 255, (n >> 8) & 255, (n >> 16) & 255} end
   end
-  t.row_height = math.max(12,math.min(26,row)); t.rtconfig = cfg; t.colors = colors; t.layout = layout_of(cfg)
+  for key,fallback in pairs(M.COLORS) do colors[key] = named(key) or fallback end
+  -- Track panel colour under the mixer artwork (selected, unselected); optional, no built-in default.
+  colors.col_seltrack, colors.col_seltrack2 = named('col_seltrack'), named('col_seltrack2')
+  t.row_height = math.max(12,math.min(26,row)); t.rtconfig = cfg; t.colors = colors
+  t.layout,t.stock6,t.recarm_y,t.label_h,t.compact6,t.full_art = layout_of(cfg)
+  -- Stock mixer faces are declared in the theme's serialized LOGFONT. Only the first
+  -- null-terminated face is needed; ignore trailing bytes left from previous settings.
+  if t.stock6 or t.layout=='default7' then
+    for _,ini in ipairs(inis) do
+      local hex=ini:match('[\r\n]lb_font%s*=%s*(%x+)')
+      if hex and #hex>=58 then
+        local face=hex:sub(57,120):gsub('(%x%x)',function(pair) return string.char(tonumber(pair,16)) end):match('^([^%z]+)%z')
+        if face and not face:find('%c') then t.font=face;break end
+      end
+    end
+  end
   -- The theme's own defaults for the values its layout script uses (colour variants differ only in these).
   local source = '\n'..cfg
   t.version = tonumber(source:match('\nset theme_version%s+(%d+)')) or 1
-  -- t.live, when set, holds the values currently chosen in REAPER's Theme Adjuster; they win over the defaults.
-  t.param = function(name, fallback)
+  local function direct_param(name)
     if t.live and t.live[name] ~= nil then return t.live[name] end
     local literal = name:gsub('%p','%%%0') -- names such as "LayoutA-verboseMcp" contain pattern characters
-    return tonumber(source:match('\ndefine_parameter%s+'..literal.."%s+'[^']*'%s+(%-?%d+)")) or fallback
+    return tonumber(source:match('\ndefine_parameter%s+'..literal.."%s+'[^']*'%s+(%-?%d+)"))
+  end
+  -- Only mixer background channels use this fallback. An alias must be a single,
+  -- unambiguous assignment to another setting; do not evaluate WALTER expressions.
+  local aliases={}
+  if t.layout=='default7' then
+    for line in cfg:gmatch('[^\r\n]+') do
+      local key,rhs=line:gsub(';.*',''):match('^%s*set%s+([%w_%-]+)%s+(.+)$')
+      if key then
+        if aliases[key]~=nil then aliases[key]=false
+        else aliases[key]=rhs:match('^([%a_][%w_%-]*)%s*$') or false end
+      end
+    end
+  end
+  t.param = function(name, fallback)
+    local value=direct_param(name)
+    if value~=nil then return value end
+    if t.layout=='default7' and name:match('^mcpBgCol[RGB]$') then
+      local seen={[name]=true}
+      local target=aliases[name]
+      while target and not seen[target] do
+        seen[target]=true
+        value=direct_param(target)
+        if value~=nil then
+          if type(value)=='number' and value>=0 and value<=255 then return value end
+          break
+        end
+        target=aliases[target]
+      end
+    end
+    return fallback
   end
   return t
 end

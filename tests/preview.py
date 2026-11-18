@@ -7,7 +7,7 @@ are not REAPER's), never evidence of native rendering. Needs `pip install lupa
 pillow numpy` in a private venv; the runtime itself has no such dependency.
 
   python tests/preview.py OUT.png [--w 122] [--h 922] [--scale 2] [--scenario plain|busy]
-                                  [--mouse X,Y] [--theme PATH]
+                                  [--mouse X,Y] [--theme PATH] [--full-artwork]
 """
 import argparse
 import ast
@@ -272,6 +272,7 @@ def main():
     ap.add_argument('--live', default=None, help='Theme Adjuster values, e.g. LayoutA-verboseMcp=1,selDot=0')
     ap.add_argument('--target', default='main', help="output strip target: main, send (first send) or off")
     ap.add_argument('--set', action='append', default=[], help='scenario override key=python-literal')
+    ap.add_argument('--full-artwork', action='store_true', help='the experimental full theme artwork toggle')
     a = ap.parse_args()
     sc = dict(SCENARIOS[a.scenario])
     for item in a.set:
@@ -282,7 +283,7 @@ def main():
         mx, my = (float(v) for v in a.mouse.split(','))
         g.t['mouse_x'], g.t['mouse_y'] = mx * a.scale, my * a.scale
     r = host(lua, sc)
-    run = lua.eval('''function(root, r, g, theme_path, out, live)
+    run = lua.eval('''function(root, r, g, theme_path, out, live, full)
       local Theme, Model, View = dofile(root..'/inspector/theme.lua'), dofile(root..'/inspector/model.lua'), dofile(root..'/inspector/view.lua')
       local home = os.getenv('HOME')
       theme_path = theme_path or home..'/Library/Application Support/REAPER/ColorThemes/Reapertips Theme_Custom2.ReaperTheme'
@@ -290,12 +291,12 @@ def main():
       local theme, err = Theme.resolve(theme_path, {cache = cache, mkdir = function(p) os.execute('mkdir -p "' .. p .. '"') end})
       assert(theme, err)
       if live then theme.live = {}; for k, v in live:gmatch('([^=,]+)=(%-?%d+)') do theme.live[k] = tonumber(v) end end
-      local view = View.new(r, g, Model.new(r), theme, {output_strip = out ~= 'off'})
+      local view = View.new(r, g, Model.new(r), theme, {output_strip = out ~= 'off', full_theme_artwork = full})
       view:frame()
       if out == 'send' then view.choice[view.snapshot.guid] = 'BUS'; view:frame() end
       return view.bitmaps and table.concat(view.bitmaps.missing, ',') or ''
     end''')
-    missing = run(ROOT, r, g.t, a.theme, a.target, a.live)
+    missing = run(ROOT, r, g.t, a.theme, a.target, a.live, a.full_artwork)
     g.fb.convert('RGB').save(a.out)
     print('wrote', a.out, g.fb.size, 'missing:', missing or '-')
 

@@ -53,7 +53,7 @@ function M:read(p,t,guid)
   local s={project=p,track=t,guid=guid,epoch=self.epoch,name=name,color=r.GetTrackColor(t),fx={},sends={},peaks={}}
   s.master=r.GetMasterTrack~=nil and r.GetMasterTrack(p)==t
   s.parent=not s.master and r.GetParentTrack and r.GetParentTrack(t) or nil
-  for _,k in ipairs({'D_VOL','D_PAN','B_MUTE','I_SOLO','B_PHASE','I_RECARM','I_RECMON','IP_TRACKNUMBER','I_RECINPUT',
+  for _,k in ipairs({'D_VOL','D_PAN','D_WIDTH','D_DUALPANL','D_DUALPANR','B_MUTE','I_SOLO','B_PHASE','I_RECARM','I_RECMON','IP_TRACKNUMBER','I_RECINPUT',
     'I_PANMODE','I_AUTOMODE','I_FXEN','I_RECMODE','B_MAINSEND','I_MIDIHWOUT'}) do
     s[k]=r.GetMediaTrackInfo_Value(t,k)
   end
@@ -120,11 +120,17 @@ function M:edit(token,label,fn)
 end
 local bounds={D_VOL={0,MAX_GAIN},D_PAN={-1,1},B_MUTE={0,1},I_SOLO={0,1},B_PHASE={0,1},I_RECARM={0,1},I_RECMON={0,2},
   I_FXEN={0,1},B_MAINSEND={0,1},I_AUTOMODE={0,5},I_RECMODE={0,16},I_RECINPUT={-1,8191}}
+local pan={D_PAN=true,D_WIDTH=true,D_DUALPANL=true,D_DUALPANR=true}
+for k in pairs(pan) do bounds[k]={-1,1} end
 function M:set(token,key,value)
   if not bounds[key] or type(value)~='number' or value~=value or math.abs(value)==math.huge or not self:valid(token) then return false end
-  if key=='D_PAN' and self.r.GetMediaTrackInfo_Value(token.track,'I_PANMODE')==6 then return false end
+  if pan[key] then
+    local mode=self.r.GetMediaTrackInfo_Value(token.track,'I_PANMODE')
+    if mode~=token.I_PANMODE or (key=='D_PAN' and mode==6) or (key=='D_WIDTH' and mode~=5)
+      or ((key=='D_DUALPANL' or key=='D_DUALPANR') and mode~=6) then return false end
+  end
   value=clamp(value,bounds[key][1],bounds[key][2])
-  if key~='D_VOL' and key~='D_PAN' then value=math.floor(value) end
+  if key~='D_VOL' and not pan[key] then value=math.floor(value) end
   local r=self.r
   if r.GetMediaTrackInfo_Value(token.track,key)==value then return true end
   return self:edit(token,key,function() return r.SetMediaTrackInfo_Value(token.track,key,value) end)

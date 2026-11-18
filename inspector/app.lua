@@ -88,14 +88,16 @@ end
 function M:menu()
   local d=self.g.dock(-1)
   local out=self.view.options.output_strip~=false
-  local choice=self.g.showmenu(((d&1)~=0 and '!' or '')..'Dock inspector|'..(out and '!' or '')..'Show output strip||Load theme...|'..(self.following and '!' or '').."Follow REAPER's theme|Close inspector")
+  local full=self.view.options.full_theme_artwork
+  local choice=self.g.showmenu(((d&1)~=0 and '!' or '')..'Dock inspector|'..(out and '!' or '')..'Show output strip||Load theme...|'..(self.following and '!' or '').."Follow REAPER's theme|"..(full and '!' or '')..'Try full theme artwork (experimental)|Close inspector')
   if choice==1 then
     local nextdock=(d&1)~=0 and (d&(~1)) or (d|1)
     self.g.dock(nextdock);self:put('dock',nextdock,true);self.view.drag=nil
   elseif choice==2 then self:set_output(not out)
   elseif choice==3 then self:choose_theme()
   elseif choice==4 then self:follow()
-  elseif choice==5 then self:stop() end
+  elseif choice==5 then self.view.options.full_theme_artwork=not full;self.view.drag=nil
+  elseif choice==6 then self:stop() end
 end
 function M:set_output(on)
   self.view.options.output_strip=on;self:put('output_strip',on and '1' or '0',true)

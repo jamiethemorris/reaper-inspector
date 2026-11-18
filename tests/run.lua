@@ -329,6 +329,41 @@ test('output strip toggle lives in the Inspector menu and is remembered', functi
   again:menu();eq(again.view.options.output_strip,true);again:stop();eq(#h.writes,0)
 end)
 
+test('experimental artwork menu can preview and restore generic artwork without changing layout', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  local App=dofile('inspector/app.lua')
+  h.theme_file=h.GetResourcePath()..'/ColorThemes/Flat Madness CI 5.1.0 Dark.ReaperThemeZip'
+  local app=App.new(h,g);assert(app:start());app:frame()
+  local v=app.view;eq(v.theme.layout,'generic')
+  assert(not v.bitmaps.cache.mcp_volthumb)
+  local old=v.hits.D_VOL
+  g.menu=5;v.drag={};app:menu();eq(v.drag,nil);app:frame()
+  eq(v.theme.layout,'generic');assert(v.bitmaps.cache.mcp_volthumb)
+  for _,k in ipairs({'x','y','w','h'}) do eq(v.hits.D_VOL[k],old[k]) end
+  app:menu();assert(g.menus[#g.menus]:find('!Try full theme artwork',1,true));app:frame()
+  assert(not v.bitmaps.cache.mcp_volthumb)
+  app:menu();app:stop();local again=App.new(h,g);assert(again:start());again:frame()
+  assert(not again.view.bitmaps.cache.mcp_volthumb);again:stop();eq(#h.writes,0)
+  -- CSIX-BASIC is recognised by its mixer script: generic arrangement, own artwork, no switch needed.
+  -- Its pan knob face is a stack of frames, drawn instead of a generated line.
+  h.theme_file=h.GetResourcePath()..'/ColorThemes/CSIX-BASIC.ReaperThemeZip'
+  local csix=App.new(h,g);assert(csix:start())
+  local pointers=0;csix.view.pointer=function() pointers=pointers+1 end
+  g.blits={};csix:frame()
+  eq(csix.view.theme.layout,'generic');assert(csix.view.theme.full_art);eq(csix.view.options.full_theme_artwork,nil)
+  eq(pointers,0);assert(csix.view.bitmaps.cache.mcp_volthumb)
+  local stack=assert(csix.view.bitmaps.cache.mcp_pan_knob_stack);local drawn
+  for _,b in ipairs(g.blits) do if b[1]==stack.slot then eq(b[6],stack.w);eq(b[7],stack.w);eq(b[10],24);eq(b[11],24);eq(b[5],30*stack.w);drawn=true end end
+  assert(drawn)
+  local Theme=dofile('inspector/theme.lua')
+  local env={cache=h.cache..'/csix',mkdir=function(p) os.execute('mkdir -p "'..p..'"') end}
+  local changed,n=csix.view.theme.rtconfig:gsub('%[5 8 37 20%]','[5 8 39 20]')
+  assert(n>0);os.execute('mkdir -p "'..env.cache..'"')
+  local f=assert(io.open(env.cache..'/rtconfig.txt','w'));f:write(changed);f:close()
+  local other=assert(Theme.resolve(env.cache,env));eq(other.layout,'generic');assert(not other.full_art)
+  csix:stop();eq(#h.writes,0)
+end)
+
 test('double-clicking a track name renames that strip; the master has no rename', function()
   local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
   h.GetOS=function() return 'macOS-arm64' end
@@ -398,22 +433,42 @@ test('theme archives: read in place, only requested images copied to the cache, 
   eq(assert(io.open(zip,'rb')):read('a'),before)
 end)
 
-test('an unrecognised theme lends only its list cells; every control is still drawn and clickable', function()
+test('generic strip borrows only compatible mute and solo art and preserves clicks', function()
   local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
   h.GetOS=function() return 'macOS-arm64' end
   local Theme=dofile('inspector/theme.lua')
-  local theme=assert(Theme.resolve(REAPERTIPS));theme.layout='generic'   -- same art, treated as a stranger
+  local env={cache=h.cache..'/generic-art',mkdir=h.RecursiveCreateDirectory}
+  local theme=assert(Theme.resolve(h.GetResourcePath()..'/ColorThemes/Flat Madness CI 5.1.0 Dark.ReaperThemeZip',env))
+  eq(theme.layout,'generic')
+  -- The synthetic gfx does not decode PNGs. Model the measured pink perimeter
+  -- of this theme's 200% mute/solo sheets; the offline preview uses the real pixels.
+  local getpixel=g.getpixel
+  g.getpixel=function()
+    local p=g.images[g.dest] or ''
+    if (p:find('200_track_mute_',1,true) or p:find('200_track_solo_',1,true)) and
+      (g.x==0 or g.y==0 or g.x==121 or g.y==41) then return 1,0,1 end
+    return getpixel()
+  end
   local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),theme)
   g.ext_retina=2;g.w=244;g.h=1400;v:frame()
-  local loaded={}
-  for _,p in pairs(g.images) do loaded[#loaded+1]=p:match('([^/]+)%.png$') end
-  assert(#loaded>0);for _,n in ipairs(loaded) do assert(n:find('^mcp_fxlist_') or n:find('^mcp_sendlist_'),n) end
+  local drawn={}
+  for _,b in ipairs(g.blits) do
+    local n=g.images[b[1]]:match('([^/]+)%.png$'):gsub('^%d+_','')
+    drawn[n]=true
+    assert(n:find('^mcp_fxlist_') or n:find('^mcp_sendlist_') or n=='track_mute_off' or n=='track_solo_off',n)
+  end
+  assert(drawn.track_mute_off and drawn.track_solo_off,'theme buttons actually blitted')
   eq(#v.bitmaps.missing,0)
   local text={};for _,c in ipairs(g.calls) do if c[1]=='drawstr' then text[c[2]]=true end end
-  for _,label in ipairs({'M','S','rec','FX','I/O','trim'}) do assert(text[label],label) end
+  for _,label in ipairs({'rec','FX','I/O','trim'}) do assert(text[label],label) end
   for _,id in ipairs({'B_MUTE','I_SOLO','I_RECARM','I_RECMON','FX','I_FXEN','D_VOL','D_PAN','I_AUTOMODE','fx1','output'}) do assert(v.hits[id],id) end
   local hit=v.hits.B_MUTE;g.mouse_x=(hit.x+5)*2;g.mouse_y=(hit.y+5)*2;g.mouse_cap=1;v:frame();g.mouse_cap=0;v:frame()
   eq(h.a.values.B_MUTE,1);eq(h.open,0)
+  -- A sheet with an incomplete third frame falls back to the labelled button.
+  local a=assert(v.bitmaps.cache.track_mute_on);a.w=121
+  g.calls={};g.blits={};v:frame()
+  local plain=false;for _,c in ipairs(g.calls) do if c[1]=='drawstr' and c[2]=='M' then plain=true end end
+  assert(plain);for _,b in ipairs(g.blits) do assert(b[1]~=a.slot) end
 end)
 
 test('cache folder names are plain ASCII whatever the archive is called, and a failed cache is reported', function()
@@ -463,6 +518,247 @@ test('Reapertips v1.95 gets its own strip: every control from its own artwork at
   g.w=130;v:frame();for _,id in ipairs({'D_VOL','B_MUTE','I_RECARM','FX'}) do local k=v.hits[id];assert(k.x>=0 and k.x+k.w<=66,id) end
 end)
 
+test('6-style keeps v1.90 geometry and adapts Default 6 to its native art and section sizes', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  h.GetOS=function() return 'macOS-arm64' end
+  local Theme=dofile('inspector/theme.lua')
+  local home=os.getenv('HOME')..'/Library/Application Support/REAPER/ColorThemes/'
+  local env={cache=h.cache..'/d6',mkdir=function(p) os.execute('mkdir -p "'..p..'"') end}
+  local theme=assert(Theme.resolve(home..'Default_6.0.ReaperThemeZip',env))
+  local custom=assert(Theme.resolve(REAPERTIPS))
+  eq(theme.layout,custom.layout);eq(theme.row_height,16)
+  local View,Model=dofile('inspector/view.lua'),dofile('inspector/model.lua')
+  local v=View.new(h,g,Model.new(h),theme,{output_strip=false})
+  for _,density in ipairs({1,1.5,2}) do
+    g.ext_retina=density;g.w=188;g.h=2186;v:frame()
+    assert(v.bitmaps.cache.mcp_pan_knob_small);eq(v.bitmaps.cache.mcp_pan_knob_large,nil)
+    assert(v.hits.I_RECINPUT and v.hits.INFX and v.hits.I_RECMODE)
+    assert(v.hits.I_RECINPUT.y<v.hits.INFX.y and v.hits.INFX.y<v.hits.I_RECMODE.y)
+    assert(v.bitmaps.cache.mcp_fx_in_empty_ol)
+    assert(v.hits.D_PAN.w<28);assert(v.hits.D_VOL and v.hits.IO and v.hits.B_PHASE)
+    eq(#v.bitmaps.missing,0)
+  end
+  g.ext_retina=2;g.w=172;g.h=800;v:frame();eq(v.hits.INFX,nil);eq(v.hits.I_RECINPUT,nil)
+  assert(v.hits.I_RECMODE);eq(#h.writes,0)
+  local c=View.new(h,g,Model.new(h),custom,{output_strip=false})
+  g.h=2186;c:frame();assert(c.bitmaps.cache.mcp_pan_knob_large);eq(c.hits.D_PAN.w,28);eq(c.hits.INFX,nil)
+  v:frame();local hit=v.hits.INFX
+  g.mouse_x=(hit.x+5)*2;g.mouse_y=(hit.y+5)*2;g.mouse_cap=1;v:frame();g.mouse_cap=0;v:frame()
+  eq(h.writes[#h.writes][1],'fx');eq(h.writes[#h.writes][3],0x1000000)
+  eq(assert(Theme.resolve(home..'Instrument_6_MTL.ReaperThemeZip',env)).layout,'generic')
+end)
+
+test('6-style recognises compatible geometry without relying on a theme name', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  local Theme,View,Model=dofile('inspector/theme.lua'),dofile('inspector/view.lua'),dofile('inspector/model.lua')
+  local home=os.getenv('HOME')..'/Library/Application Support/REAPER/ColorThemes/'
+  local dir=h.cache..'/6-style-variant'
+  local env={cache=dir,mkdir=function(p) os.execute('mkdir -p "'..p..'"') end}
+  local stock=assert(Theme.resolve(home..'Default_6.0.ReaperThemeZip',env))
+  local neptune=assert(Theme.resolve(home..'Neptune VI.ReaperThemeZip',env))
+  local jmod=assert(Theme.resolve(home..'Neptune VI_JMod.ReaperTheme',env))
+  local function render(theme)
+    local v=View.new(h,g,Model.new(h),theme,{output_strip=false})
+    g.ext_retina=2;g.w=188;g.h=1500;v:frame();return v
+  end
+  local base=render(stock)
+  for _,theme in ipairs({neptune,jmod}) do
+    eq(theme.layout,stock.layout);assert(theme.stock6)
+    local v=render(theme)
+    assert(v.bitmaps.cache.mcp_pan_knob_small and v.bitmaps.cache.mcp_volthumb)
+    eq(v.hits.I_RECARM.y,v.hits.INFX.y+base.hits.I_RECARM.y-base.hits.INFX.y-2)
+    eq(v.hits.name.h,base.hits.name.h+1)
+  end
+  eq(#h.writes,0)
+  local function classify(cfg)
+    local f=assert(io.open(dir..'/rtconfig.txt','w'));f:write(cfg);f:close()
+    return assert(Theme.resolve(dir,env)).layout
+  end
+  eq(classify(neptune.rtconfig),stock.layout)
+  local changed,n=neptune.rtconfig:gsub('(%[0 19 21 )20(%])','%138%2',1)
+  eq(n,1);eq(classify(changed),'generic')
+  changed,n=neptune.rtconfig:gsub('%[0 %-2 36 24%]','[0 -12 36 24]',1)
+  eq(n,1);eq(classify(changed),'generic')
+  for _,file in ipairs({'phaselab-theme-2.0-colored.ReaperThemeZip','phaselab-theme-2.0-uncolored.ReaperThemeZip',
+      'phaselab-theme-uncoloredTCP_1.3_Custom.ReaperTheme','phaselab-theme-uncoloredTCP_1.3.zip'}) do
+    local theme=assert(Theme.resolve(home..file,env))
+    assert(theme.stock6,file..' resolved as '..theme.layout)
+    local v=render(theme)
+    for _,id in ipairs({'I_RECARM','B_MUTE','I_SOLO'}) do eq(v.hits[id].w,20);eq(v.hits[id].h,20) end
+    eq(v.hits.I_RECARM.x,v.hits.I_RECMON.x)
+    eq(v.hits.D_VOL.w,24);eq(v.hits.FX.w,base.hits.FX.w-1)
+    assert(v.bitmaps.cache.mcp_volthumb and v.bitmaps.cache.mcp_recarm_off)
+    assert(v.bitmaps.cache.track_mute_off and v.bitmaps.cache.track_phase_norm)
+    eq(classify(theme.rtconfig),stock.layout)
+  end
+end)
+
+test('PhaseLab colour bar stays behind the controls; pan marker and record-arm surround come from its art', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  local chosen,tall=true,true
+  h.IsTrackSelected=function(track) return chosen and track==h.a end
+  local Theme,View,Model=dofile('inspector/theme.lua'),dofile('inspector/view.lua'),dofile('inspector/model.lua')
+  local home=os.getenv('HOME')..'/Library/Application Support/REAPER/ColorThemes/'
+  local env={cache=h.cache..'/phasefooter',mkdir=function(p) os.execute('mkdir -p "'..p..'"') end}
+  -- The synthetic gfx does not decode PNGs: model the measured guide lines of the 200% art.
+  g.getpixel=function()
+    local name=(g.images[g.dest] or ''):match('/200_([%w_]+)%.png$')
+    if tall and (name=='mcp_idxbg' or name=='mcp_idxbg_sel') and g.x==0 then
+      if g.y<2285 then return 1,1,0 end
+      if g.y<2325 then return 1,0,1 end
+    elseif (name=='mcp_recarm_off_ol' or name=='mcp_mute_off_ol') and ((g.y==0 and g.x<15) or (g.x==0 and g.y<3)) then
+      return 1,0,1
+    end
+    return .2,.2,.2
+  end
+  local function frame(theme)
+    local v=View.new(h,g,Model.new(h),theme,{output_strip=false})
+    local pointers=0;v.pointer=function() pointers=pointers+1 end
+    g.w=188;g.h=1500;g.blits={};v:frame()
+    local first,last={}, {}
+    for i,b in ipairs(g.blits) do
+      local name=g.images[b[1]]:match('/200_([%w_]+)%.png$') or g.images[b[1]]:match('([%w_]+)%.png$')
+      first[name]=first[name] or i;last[name]=i
+    end
+    return v,first,last,pointers
+  end
+  local theme=assert(Theme.resolve(home..'phaselab-theme-2.0-colored.ReaperThemeZip',env))
+  eq(theme.colors.col_seltrack2[1],73)
+  local v,first,last,pointers=frame(theme)
+  assert(first.mcp_bgsel and first.mcp_bgsel<first.mcp_idxbg_sel,'mixer background goes under the colour bar')
+  assert(first.mcp_extmixbgsel<first.mcp_fxlist_bg and first.mcp_fxlist_bg<first.mcp_fxlist_norm,'insert list background sits between rack backing and cells')
+  eq(v.hits.I_RECARM.y,v.layout.S-16) -- the theme's own offset: its surround must meet the fader panel
+  eq(first.mcp_idxbg,nil)
+  for _,front in ipairs({'mcp_fx_norm','mcp_pan_knob_small','mcp_recarm_off','mcp_volthumb','mcp_recmode_in'}) do
+    assert(first[front] and last.mcp_idxbg_sel<first[front],front..' must be drawn over the colour bar')
+  end
+  for _,b in ipairs(g.blits) do
+    if g.images[b[1]]:match('/200_mcp_idxbg_sel%.png$') then
+      assert(b[9]>=v.layout.T*2 and b[9]+b[11]<=g.h,'colour bar left the lower strip')
+      eq(b[7],b[11]) -- never stretched vertically
+    end
+  end
+  -- The theme's own marker frames replace the generated pointer line.
+  eq(pointers,0)
+  local stack=g.blits[first.mcp_pan_knob_stack];eq(stack[6],40);eq(stack[7],40);eq(stack[5],17*40)
+  assert(first.mcp_pan_knob_small<first.mcp_pan_knob_stack)
+  -- The record-arm surround is the button's guided overlay; an overlay without guide lines is not one.
+  assert(first.mcp_recarm_off<first.mcp_recarm_off_ol)
+  h.a.values.I_RECARM=1
+  local _,armed=frame(theme)
+  assert(armed.mcp_recarm_on and not armed.mcp_recarm_on_ol and not armed.mcp_recarm_off_ol)
+  h.a.values.I_RECARM=0;chosen=false
+  local _,plain=frame(theme)
+  assert(plain.mcp_idxbg and plain.mcp_bg and not plain.mcp_idxbg_sel and not plain.mcp_bgsel)
+  -- Stock 6 has no such art: its footer stays in the footer and REAPER's pointer line remains.
+  local stock=assert(Theme.resolve(home..'Default_6.0.ReaperThemeZip',env));tall=false
+  local _,sfirst,_,spointers=frame(stock)
+  eq(spointers,1);eq(sfirst.mcp_pan_knob_stack,nil)
+  assert(sfirst.mcp_mute_off<sfirst.mcp_mute_off_ol,'stock overlay (button shadow) follows its button')
+  for _,b in ipairs(g.blits) do
+    if g.images[b[1]]:match('mcp_idxbg') then assert(b[9]>=g.h-60,'stock footer left its tile') end
+  end
+  eq(#h.writes,0)
+end)
+
+test('6-style uses the guided mixer background behind pan without covering the footer', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  h.IsTrackSelected=function(track) return track==h.a end
+  local Theme,View,Model=dofile('inspector/theme.lua'),dofile('inspector/view.lua'),dofile('inspector/model.lua')
+  local home=os.getenv('HOME')..'/Library/Application Support/REAPER/ColorThemes/'
+  local env={cache=h.cache..'/panbg',mkdir=function(p) os.execute('mkdir -p "'..p..'"') end}
+  local function render(theme,margin)
+    g.w=376;g.h=1500;g.blits={}
+    g.getpixel=function()
+      if (g.images[g.dest] or ''):match('/200_mcp_bg[^/]*%.png$') then
+        -- Actual 200% PNG guides: two pink pixels along the top, a longer left guide.
+        if (g.x==0 and g.y<margin) or (g.y==0 and g.x<2) then return 1,0,1 end
+      end
+      return .3,.3,.3
+    end
+    local v=View.new(h,g,Model.new(h),theme);v.choice[h.a.guid]=h.b;v:frame();return v
+  end
+  local function draws(v)
+    local count={}
+    for _,b in ipairs(g.blits) do
+      local asset=g.images[b[1]]:match('/200_(mcp_bg%a*)%.png$')
+      if asset then
+        local T,S=v.layout.T,v.layout.S
+        eq(b[5],65);eq(b[9],(T+32)*2);eq(b[11],(S-T-32)*2)
+        count[asset]=(count[asset] or 0)+b[10]
+      end
+    end
+    return count
+  end
+  local neptune=assert(Theme.resolve(home..'Neptune VI.ReaperThemeZip',env))
+  local v=render(neptune,324);local count=draws(v)
+  eq(count.mcp_bgsel,188);eq(count.mcp_bg,188)
+  eq(next(draws(render(neptune,66))),nil) -- same structure, but the protected area no longer fits
+  eq(next(draws(render(assert(Theme.resolve(home..'Default_6.0.ReaperThemeZip',env)),66))),nil)
+  eq(#h.writes,0)
+end)
+
+test('Default 6 and 7 families paint theme rack backing before slots and fall back if absent', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  local Theme,View,Model=dofile('inspector/theme.lua'),dofile('inspector/view.lua'),dofile('inspector/model.lua')
+  local home=os.getenv('HOME')..'/Library/Application Support/REAPER/ColorThemes/'
+  local env={cache=h.cache..'/rackbg',mkdir=function(p) os.execute('mkdir -p "'..p..'"') end}
+  g.w=376;g.h=1500
+  local load=g.loadimg;local missing={}
+  g.loadimg=function(i,path)
+    if missing[path:match('([^/]+)%.png$')] then return -1 end
+    return load(i,path)
+  end
+  local function render(theme)
+    g.blits={};View.new(h,g,Model.new(h),theme):frame()
+    local names={}
+    for _,b in ipairs(g.blits) do
+      local name=g.images[b[1]]:match('([^/]+)%.png$')
+      names[#names+1]=name
+    end
+    return names
+  end
+  for _,file in ipairs({'Neptune VI.ReaperThemeZip','MK_Colored_Stripes_v5.3.ReaperThemeZip'}) do
+    local theme=assert(Theme.resolve(home..file,env))
+    missing={}
+    local names=render(theme)
+    assert(names[1]=='mcp_extmixbgsel',file..': '..tostring(names[1]))
+    assert(names[2]:match('mcp_fxlist_norm$'))
+    assert(table.concat(names,','):find(',mcp_extmixbg,',1,true)) -- unselected output strip
+    missing.mcp_extmixbgsel=true
+    eq(render(theme)[1],'mcp_extmixbg')
+    missing.mcp_extmixbg=true
+    eq(render(theme)[1],names[2])
+  end
+  eq(#h.writes,0)
+end)
+
+test('rack backing with touching vertical guides stretches a middle row, not the black foot', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  local Theme,View,Model=dofile('inspector/theme.lua'),dofile('inspector/view.lua'),dofile('inspector/model.lua')
+  local home=os.getenv('HOME')..'/Library/Application Support/REAPER/ColorThemes/'
+  local env={cache=h.cache..'/reark',mkdir=function(p) os.execute('mkdir -p "'..p..'"') end}
+  local theme=assert(Theme.resolve(home..'reARK_6.73.ReaperThemeZip',env))
+  g.getpixel=function()
+    if (g.images[g.dest] or ''):match('/200_mcp_extmixbgsel%.png$') then
+      -- Guide runs from the real 85x9 reARK selected backing.
+      local x,y=g.x,g.y
+      if y==0 and x<2 or x==84 and y==8 then return 1,1,0 end
+      if x==0 and y==1 or x==84 and y>=2 and y<8 or y==0 and x>=2 and x<25 or y==8 and x>=61 and x<84 then return 1,0,1 end
+    end
+    return .2,.2,.2
+  end
+  g.w=188;g.h=1500
+  local v=View.new(h,g,Model.new(h),theme,{output_strip=false});v:frame()
+  local stretched=false
+  for _,b in ipairs(g.blits) do
+    if g.images[b[1]]:match('/200_mcp_extmixbgsel%.png$') and b[11]>10 then
+      eq(b[5],2);eq(b[7],1);stretched=true
+    end
+  end
+  assert(stretched,'missing stretched rack backing')
+end)
+
 test('Default 7 gets its own strip, built from base art plus overlays, following Theme Adjuster values', function()
   local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
   h.GetOS=function() return 'macOS-arm64' end
@@ -475,7 +771,7 @@ test('Default 7 gets its own strip, built from base art plus overlays, following
   local function at(hgt) g.ext_retina=2;g.w=184;g.h=hgt*2;v:frame() end
   at(640);eq(#v.bitmaps.missing,0)
   local loaded={};for _,p in pairs(g.images) do loaded[p:match('([^/]+)%.png$'):gsub('^200_','')]=true end
-  for _,n in ipairs({'track_mute_off','track_mute_off_ol','track_recarm_off_ol','mcp_io_s_ol','mcp_fx_norm','track_fxon_v_ol','dropdownBg_h','gen_knob_bg_small','mcp_volthumb'}) do assert(loaded[n],n) end
+  for _,n in ipairs({'track_mute_off','track_mute_off_ol','track_recarm_off_ol','mcp_io_s_ol','mcp_fx_norm','track_fxon_v_ol','dropdownBg_h','tcp_pan_knob_small','mcp_volthumb'}) do assert(loaded[n],n) end
   local mute,solo,io,fx,byp,env_,phase=v.hits.B_MUTE,v.hits.I_SOLO,v.hits.IO,v.hits.FX,v.hits.I_FXEN,v.hits.I_AUTOMODE,v.hits.B_PHASE
   eq(mute.w,20);eq(mute.h,20);eq(mute.x,92-32+6);eq(solo.y,mute.y+20);eq(io.y,solo.y+26);eq(io.h,22)
   eq(fx.y,io.y+28);eq(byp.y,fx.y+20);eq(byp.h,16);eq(env_.y,byp.y+22);eq(phase.y,env_.y+28)
@@ -520,7 +816,147 @@ test('narrow panels drop the meter before controls can collide; double-click res
   g.mouse_cap=1;v:frame();g.mouse_cap=0;v:frame();eq(h.a.values.D_VOL,1);assert(moved~=1)
 end)
 
-test('dual-pan track refuses unsupported pan write at model boundary', function()
+test('pan modes expose bounded independent controls and refuse stale mode writes', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  local m=dofile('inspector/model.lua').new(h)
+  local env={cache=h.cache..'/pan',mkdir=h.RecursiveCreateDirectory}
+  local Theme=dofile('inspector/theme.lua');local View=dofile('inspector/view.lua')
+  local dir=h.GetResourcePath()..'/ColorThemes/'
+  for _,theme in ipairs({assert(Theme.resolve(REAPERTIPS)),assert(Theme.resolve(dir..'Reapertips Theme.ReaperThemeZip',env)),
+    assert(Theme.resolve(dir..'Default_6.0.ReaperThemeZip',env)),assert(Theme.resolve(dir..'Default_7.0.ReaperThemeZip',env)),
+    assert(Theme.resolve(dir..'Neptune VI.ReaperThemeZip',env))}) do
+    h.a.values.I_PANMODE=5;h.a.values.D_WIDTH=.77;h.master.values.I_PANMODE=6
+    h.master.values.D_DUALPANL=-1;h.master.values.D_DUALPANR=1
+    g.w=368;g.h=1400
+    local v=View.new(h,g,m,theme);v:frame();eq(v.snapshot.D_WIDTH,.77)
+    local pan,width=v.hits.D_PAN,v.hits.D_WIDTH
+    assert(pan and width and pan.x+pan.w<=width.x,theme.layout)
+    local left,right=v.hits['out:D_DUALPANL'],v.hits['out:D_DUALPANR']
+    assert(left and right and left.w>left.h and left.y+left.h<=right.y,theme.layout)
+    eq(v.hits['out:D_PAN'],nil)
+    g.mouse_x=(width.x+width.w/2)*2;g.mouse_y=(width.y+5)*2;g.mouse_cap=1;v:frame()
+    g.mouse_x=g.mouse_x-10;v:frame();g.mouse_cap=0;v:frame()
+    assert(math.abs(h.a.values.D_WIDTH-.67)<1e-8);eq(h.a.values.D_PAN,0)
+    g.mouse_x=(left.x+left.w/2)*2;g.mouse_y=(left.y+left.h/2)*2;g.mouse_cap=1;v:frame()
+    g.mouse_x=g.mouse_x+left.w;v:frame();assert(h.master.values.D_DUALPANL>-.2);eq(h.master.values.D_DUALPANR,1)
+    h.master.values.I_PANMODE=5;local n=#h.writes
+    g.mouse_x=g.mouse_x+10;v:frame();eq(#h.writes,n);eq(v.drag,nil)
+    g.mouse_cap=0;v:frame()
+    assert(m:set(v.snapshot,'D_WIDTH',-4));eq(h.a.values.D_WIDTH,-1)
+    assert(not m:set(v.snapshot,'D_DUALPANR',0))
+  end
+end)
+
+test('Default 7 derivatives are detected by normal mixer structure', function()
+  local h=dofile('tests/synthetic.lua').host();local Theme=dofile('inspector/theme.lua')
+  local env={cache=h.cache..'/d7-derivatives',mkdir=h.RecursiveCreateDirectory}
+  for _,name in ipairs({'Default_7.0_LCS_Flat-Anti-Theme.ReaperThemeZip','Default_7.0_WT_TheAntiTheme.ReaperTheme',
+    'Default_7.0_WT_TheAntiTheme_custom.ReaperTheme','Default_7_Dark_7.ReaperTheme',
+    'LCS_Flat-7.ReaperThemeZip','MK_Colored_Stripes_v5.3.ReaperThemeZip'}) do
+    local theme=assert(Theme.resolve(h.GetResourcePath()..'/ColorThemes/'..name,env));assert(theme.layout=='default7',name)
+  end
+end)
+
+test('Default 7 mixer colours follow simple aliases without overriding direct settings', function()
+  local h=dofile('tests/synthetic.lua').host();local Theme=dofile('inspector/theme.lua')
+  local env={cache=h.cache..'/bg-alias',mkdir=h.RecursiveCreateDirectory};local dir=h.GetResourcePath()..'/ColorThemes/'
+  local mk=assert(Theme.resolve(dir..'MK_Colored_Stripes_v5.3.ReaperThemeZip',env))
+  local stock=assert(Theme.resolve(dir..'Default_7.0.ReaperThemeZip',env))
+  eq(stock.param('mcpBgColR',-1),129)
+  for _,key in ipairs({'mcpBgColR','mcpBgColG','mcpBgColB'}) do eq(mk.param(key,-1),51) end
+  mk.live={tcpBgColAll=76,mcpBgColG=0}
+  eq(mk.param('mcpBgColR',-1),76);eq(mk.param('mcpBgColG',-1),0);eq(mk.param('mcpBgColB',-1),76)
+  local d=env.cache..'/fixture';env.mkdir(d)
+  local f=assert(io.open(d..'/rtconfig.txt','w'));f:write([[
+set mcpBgColR loop
+set loop mcpBgColR
+set mcpBgColG bright
+set mcpBgColG + bright 4
+set mcpBgColB bright
+define_parameter mcpBgColB 'Direct blue' 19 0 255
+define_parameter bright 'Brightness' 51 0 255
+]],stock.rtconfig:gsub('\ndefine_parameter mcpBgCol[RGB][^\r\n]*',''));f:close()
+  local sample=assert(Theme.resolve(d))
+  eq(sample.layout,'default7');eq(sample.param('mcpBgColR',-1),-1)
+  eq(sample.param('mcpBgColG',-1),-1)
+  eq(sample.param('mcpBgColB',-1),19)
+end)
+
+test('stock themes request their own font and draw Default 7 pan cap without enlargement', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  local Theme=dofile('inspector/theme.lua');local View=dofile('inspector/view.lua')
+  local env={cache=h.cache..'/pan-art',mkdir=h.RecursiveCreateDirectory};local dir=h.GetResourcePath()..'/ColorThemes/'
+  local v=View.new(h,g,dofile('inspector/model.lua').new(h),assert(Theme.resolve(dir..'Default_6.0.ReaperThemeZip',env)))
+  g.w=184;v:frame()
+  local function font(face) for _,c in ipairs(g.calls) do if c[1]=='setfont' and c[2]==1 and c[3]==face then return true end end end
+  assert(font('Calibri'))
+  g.calls={};g.blits={};v.theme=assert(Theme.resolve(dir..'Default_7.0.ReaperThemeZip',env));v:frame()
+  assert(font('Inter'))
+  local slot=v.bitmaps.cache.tcp_pan_knob_small.slot;local found=false
+  for _,b in ipairs(g.blits) do if b[1]==slot then found=true;eq(b[6],b[10]);eq(b[7],b[11]) end end
+  assert(found)
+  assert(v.bitmaps.cache.tcp_pan_knob_stack,'stock Default 7 uses the theme marker stack')
+  h.a.values.I_PANMODE=5;h.a.values.D_WIDTH=1;v:frame()
+  assert(v.bitmaps.cache.mcp_width_knob_small,'the stereo width cap has distinct art')
+end)
+
+test('Default 7 family draws theme pan cap and value-indexed marker without a generated line', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  local Theme=dofile('inspector/theme.lua');local View=dofile('inspector/view.lua')
+  local env={cache=h.cache..'/pan-frames',mkdir=h.RecursiveCreateDirectory}
+  for _,item in ipairs({{'Default_7_Dark_7.ReaperTheme',25},{'Default_7.0_WT_TheAntiTheme.ReaperTheme',41},
+    {'Default_7.0_LCS_Flat-Anti-Theme.ReaperThemeZip',41},{'Default_7.0_WT_TheAntiTheme_custom.ReaperTheme',41}}) do
+    local theme=assert(Theme.resolve(h.GetResourcePath()..'/ColorThemes/'..item[1],env))
+    local v=View.new(h,g,dofile('inspector/model.lua').new(h),theme,{output_strip=false})
+    g.w=184;g.h=1400
+    for _,mode in ipairs({3,5}) do
+      h.a.values.I_PANMODE=mode;h.a.values.D_WIDTH=1
+      for _,p in ipairs({-1,0,1}) do
+        local pointers=0;v.pointer=function() pointers=pointers+1 end
+        h.a.values.D_PAN=p;g.blits={};v:frame()
+        local cap=assert(v.bitmaps.cache.tcp_pan_knob_small,item[1]..': cap')
+        local stack=assert(v.bitmaps.cache.tcp_pan_knob_stack,item[1]..': marker stack')
+        local drawn=false;local frame=math.floor((p+1)*(item[2]-1)/2+.5)
+        for _,b in ipairs(g.blits) do
+          if b[1]==stack.slot then eq(b[5],frame*40);eq(b[6],40);eq(b[7],40);eq(b[10],40);eq(b[11],40);drawn=true end
+        end
+        assert(drawn and cap.slot<stack.slot);eq(pointers,0)
+      end
+    end
+  end
+  eq(#h.writes,0)
+end)
+
+test('stereo width uses theme frames and paints shared backing before the pan face', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  local Theme=dofile('inspector/theme.lua');local View=dofile('inspector/view.lua')
+  local env={cache=h.cache..'/width-frames',mkdir=h.RecursiveCreateDirectory};local dir=h.GetResourcePath()..'/ColorThemes/'
+  g.w=188;g.h=1500;h.a.values.I_PANMODE=5
+  for _,case in ipairs({{'Default_7.0.ReaperThemeZip','tcp_wid_knob_stack',25,true},
+    {'LCS_Flat-7.ReaperThemeZip','mcp_wid_knob_stack',35},
+    {'MK_Colored_Stripes_v5.3.ReaperThemeZip','mcp_wid_knob_stack',35},
+    {'Reapertips Theme_Custom2.ReaperTheme','tcp_wid_knob_stack',73}}) do
+    local theme=assert(Theme.resolve(dir..case[1],env))
+    local v=View.new(h,g,dofile('inspector/model.lua').new(h),theme,{output_strip=false})
+    for _,w in ipairs({-1,0,.33,1}) do
+      g.blits={};h.a.values.D_WIDTH=w;v:frame()
+      local a=assert(v.bitmaps.cache[case[2]],case[1]..': width stack')
+      local marker,back,pan
+      for i,b in ipairs(g.blits) do
+        if b[1]==a.slot then marker=i;eq(b[5],a.y+math.floor((w+1)*(case[3]-1)/2+.5)*a.w) end
+        if case[4] then
+          if b[1]==v.bitmaps.cache.mcp_width_knob_small.slot then back=i end
+          if b[1]==v.bitmaps.cache.tcp_pan_knob_small.slot then pan=i end
+        end
+      end
+      assert(marker,case[1]..': width frame drawn')
+      if case[4] then assert(back<pan and pan<marker,'backing must not cover the pan cap') end
+    end
+  end
+  eq(#h.writes,0)
+end)
+
+test('dual-pan track refuses balance writes at model boundary', function()
   local h=dofile('tests/synthetic.lua').host();h.a.values.I_PANMODE=6
   local m=dofile('inspector/model.lua').new(h);local token=m:snapshot()
   assert(not m:set(token,'D_PAN',.8));eq(#h.writes,0)
