@@ -164,6 +164,43 @@ local function flatmadness_of(cfg)
   end
   return true
 end
+-- iconEX (Dark, Hybrid, Light): one mixer macro, drawMCP, a fixed 80 pt strip with a 300 pt panel. Rows hang from the panel top,
+-- the lower ones from its bottom. The editions' macros differ only in colours (read in `finish`); any changed rectangle falls back.
+local function iconex_of(cfg)
+  local script=' '..cfg:gsub(';[^\\r\\n]*',''):gsub('\\\\%s*[\\r\\n]',' '):gsub('%s+',' ')..' '
+  for _,s in ipairs({
+    'macro drawMCP scale fontsize hugestate narrow lttype', 'drawMCP 2 2 0 0 _Df',
+    'set mcp.size * scale narrow=1 [50 518 0 300 450] [mcp_width{0} 320 0 mcp_minheight mcp_width{4} mcp_width{5}]',
+    'hugestate=1 [114 folderincrease 0 mcp_minheight 112 100] [80 folderincrease 0 mcp_minheight 78 60]',
+    'set mcp.custom.colrcover * scale [0 0 300 160]',
+    'set mcp.custom.trackcolor * scale mcp_solid_color##lttype=3 [0 152 mcp.size{0} 12] [0 150 mcp.size{0} 5]',
+    'set mcp.custom.colorbg mcp_solid_color##lttype=1 mcp_colorbg_main [0]', 'set mcp.custom.sol1bg mcp_solid_color##lttype=2 mcp_sol1bg_main [0]',
+    'set mcp.custom.sol1bgsel mcp_solid_color##lttype<=2 mcp_sol1bg_mainsel [0]', 'set mcp.custom.adjustbgsel mcp_solid_color##lttype=3 mcp_adjustbg_mainsel [0]',
+    'set mcp.trackidx * scale [0 300 mcp_width{0} 20 0 1 0 1]', 'set labelpoints * scale [78 18]', 'set mcp.label [0 labelpoints{0} mcp.size{0} labelpoints{1}]',
+    'set mcp_column_anchor w=mspwidBP{2} [86 102] w=mspwidBP{1} [66 102] [52 102]',
+    'set mcp.mute * scale h<mcp_flipBP{0} + mcp_column_anchor [-14 64 18 20] + mcp_column_anchor [3 64 20 18]',
+    'set mcp.solo * scale h<mcp_flipBP{0} + mcp_column_anchor [4 64 18 20] + mcp_column_anchor [3 82 20 18]',
+    'set mcp.recarm * scale folderstate=1 recarm_adjust [8 8 20 20]', 'set mcp.recmode * scale folderstate=1 recmode_adjust [26 8 20 20]',
+    'set mcp.recmon * scale folderstate=1 recmon_adjust [50 8 22 20]', 'set mcp.recinput * scale folderstate=1 + recinput_adjust [0 0 0 0] [8 54 64 20]',
+    'set mcp.env * scale [8 31 64 20]', 'set mcp.fx * scale [6 102 22 20]', 'set mcp.fxbyp * scale [28 102 18 20]', 'set mcp.fxin * scale [46 102 27 20]',
+    'set mcp.pan * scale trackpanmode<4 mcppanswitch [6 124 68 10]', 'set mcppanswitch mcppanslider##lttype=1 [6 126 68 20] [7 124 20 20]',
+    'set labelmcpswitch mcppanslider##lttype=1 mcp.pan * scale [29 124 44 20]', 'set mixerwidth [6 136 68 10]',
+    'set mcp_meter_main h<mcp_flipBP{0} [6 156 30 30 0 0 0 0] w=mspwidBP{2} [5 158 55 118 0 0 0 1] w=mspwidBP{1} [5 158 35 118 0 0 0 1] [8 156 18 118 0 0 0 1]',
+    'set mcp.meter * scale + mcp_meter_main [0 10 0 -10]',
+    'set mcpvol_main w=mspwidBP{2} [66 168 19 106 0 0 0 1] w=mspwidBP{1} [46 168 19 106 0 0 0 1] [30 168 19 106 0 0 0 1]', 'set mcp.volume.margin * scale [0 10 0 10]',
+    'set mcpvol_label_main w=mspwidBP{2} [40 280 44 18 0 1 0 1] w=mspwidBP{1} [20 280 44 18 0 1 0 1] [6 279 44 18 0 1 0 1]',
+    'set mcp.phase * scale h<mcpphaseBP{0} [0] + mcp_column_anchor [5 154 17 17 0 1 0 1]', 'set mcp.io * scale h<mcpphaseBP{1} [0] + mcp_column_anchor [3 177 20 18 0 1 0 1]',
+    'set master.mcp.mono * scale [95 220 20 50 0 1 0 1]',
+  }) do
+    if not script:find(' '..s..' ',1,true) then return false end
+  end
+  -- Per-edition colours: the track number (selected, other) and the name's selected colour.
+  local function rgb(pattern) local r,g,b=script:match(pattern) if r then return {tonumber(r),tonumber(g),tonumber(b)} end end
+  local p='%[(%d+) (%d+) (%d+)%]'
+  return {idx_sel=rgb(' set mcp%.trackidx%.color %?recarm %[%d+ %d+ %d+%] %?track_selected '..p),
+    idx=rgb(' set mcp%.trackidx%.color %?recarm %[%d+ %d+ %d+%] %?track_selected %[%d+ %d+ %d+%] '..p),
+    name_sel=rgb(' set mcp%.label%.color track_selected=1 '..p)}
+end
 -- The 6-style mixer macro, comments dropped and whitespace collapsed, for exact `has(...)` matching.
 local function mcp_script(cfg)
   local body=('\n'..cfg:gsub(';[^\r\n]*','')):match('\n[ \t]*macro[ \t]+drawMcp[ \t]+scale[ \t]*[\r\n]+([%s%S]-)\n[ \t]*endmacro%f[%W]')
@@ -246,6 +283,10 @@ local function layout_of(cfg)
   if not cfg:find('macro%s+drawMcp') and cfg:find('custom_mcp_paneltopleft',1,true) and frxst_of(cfg) then return 'frxst' end
   if cfg:find('macro%s+drawDefaultMCP%s') and mydaw_of(cfg) then return 'mydaw' end
   if cfg:find('macro%s+drawMCP%s') and flatmadness_of(cfg) then return 'flatmadness' end
+  if cfg:find('macro%s+drawMCP%s+scale%s+fontsize%s+hugestate%s+narrow') then
+    local ix=iconex_of(cfg)
+    if ix then return 'iconex',nil,nil,nil,nil,nil,nil,ix end
+  end
   if not cfg:find('macro%s+drawMcp') and cfg:find('set mcp_narrow',1,true) then
     local gray=gray80_of(cfg)
     if gray then return 'gray80',nil,nil,nil,nil,nil,gray end
@@ -268,8 +309,9 @@ local function finish(t, cfg, inis)
   for key,fallback in pairs(M.COLORS) do colors[key] = named(key) or fallback end
   -- Track panel colour under the mixer artwork (selected, unselected); optional, no built-in default.
   colors.col_seltrack, colors.col_seltrack2, colors.col_mixerbg = named('col_seltrack'), named('col_seltrack2'), named('col_mixerbg')
+  colors.col_tcp_text = named('col_tcp_text') -- the mixer's volume readout, where its script names no colour
   t.row_height = math.max(12,math.min(26,row)); t.rtconfig = cfg; t.colors = colors
-  t.layout,t.stock6,t.recarm_y,t.label_h,t.compact6,t.full_art,t.gray80 = layout_of(cfg)
+  t.layout,t.stock6,t.recarm_y,t.label_h,t.compact6,t.full_art,t.gray80,t.ix = layout_of(cfg)
   if t.full_art or t.layout=='csixsx' then t.csix = csix_colors(cfg) end
   if t.layout=='frxst' then t.send_row_height = math.max(12,math.min(30,tonumber(cfg:match('set%s+mcp%.sendlist%.font%s+%[%s*%d+%s+(%d+)')) or 27)) end
   if t.layout=='mydaw' then
@@ -284,6 +326,12 @@ local function finish(t, cfg, inis)
     -- and volume text, user_font2 (28 px) for the name and track number (gfx sizes that render as large as the mixer's).
     t.row_height,t.send_row_height = 16,16
     t.bright = cfg:find('\n%s*set%s+bright%s+1') ~= nil -- the input field's text is lighter in the Bright editions
+    t.font,t.fonts = 'Helvetica Neue',{main={12.2,true},list={12.2,true},sends={12.2,true},header={14.7,true},bold={14.7,true}}
+  end
+  if t.layout=='iconex' then
+    -- Lists are 16 pt rows; every label is Helvetica Neue bold: user_font6 (24 px) for lists, input and pan, user_font2 (28 px) for the
+    -- name, readout and track number (the sizes Flat Madness's mixer, which names the same fonts, was measured at).
+    t.row_height,t.send_row_height = 16,16
     t.font,t.fonts = 'Helvetica Neue',{main={12.2,true},list={12.2,true},sends={12.2,true},header={14.7,true},bold={14.7,true}}
   end
   if t.layout=='csixsx' then
@@ -307,7 +355,7 @@ local function finish(t, cfg, inis)
   end
   -- The theme's own defaults for the values its layout script uses (colour variants differ only in these).
   local source = '\n'..cfg
-  if t.layout=='flatmadness' then source = (source:gsub('\n[ \t]+define_parameter','\ndefine_parameter')) end -- its definitions are indented
+  if t.layout=='flatmadness' or t.layout=='iconex' then source = (source:gsub('\n[ \t]+define_parameter','\ndefine_parameter')) end -- its definitions are indented
   t.version = tonumber(source:match('\nset theme_version%s+(%d+)')) or 1
   local function direct_param(name)
     if t.live and t.live[name] ~= nil then return t.live[name] end

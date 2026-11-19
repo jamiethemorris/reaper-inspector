@@ -1190,6 +1190,103 @@ test('Flat Madness: the macro\'s rows from the panel top and bottom, three strip
   eq(assert(Theme.resolve(env.cache..'/changed',env)).layout,'generic')
 end)
 
+test('iconEX: the macro\'s rows from the panel top and bottom, the track colour only in the art\'s slot, selection as a cap', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  h.GetOS=function() return 'macOS-arm64' end
+  local Theme=dofile('inspector/theme.lua')
+  local home=os.getenv('HOME')..'/Library/Application Support/REAPER/ColorThemes/'
+  local env={cache=h.cache..'/iconex',mkdir=function(p) os.execute('mkdir -p \"'..p..'\"') end}
+  -- Dark, Hybrid and Light share one mixer macro; only colours differ (track number, selected name), read from it.
+  local want={Dark={255,160},Hybrid={170,150},Light={170,150}}
+  for _,name in ipairs({'Dark','Hybrid','Light'}) do
+    local t=assert(Theme.resolve(home..'iconEX '..name..'.ReaperThemeZip',env),name);eq(t.layout,'iconex')
+    eq(t.ix.idx_sel[1],want[name][1]);eq(t.ix.idx[1],want[name][2]);eq(t.ix.name_sel[1],name=='Light' and 96 or 230)
+    eq(t.row_height,16);eq(t.font,'Helvetica Neue');eq(t.param('mcplabelbrightness_Df',0),name=='Light' and 100 or 175);eq(t.param('mcp_solid_color_Df',0),1)
+  end
+  eq(assert(Theme.resolve(home..'iconEX Dark.ReaperTheme',env)).layout,'iconex')
+  local theme=assert(Theme.resolve(home..'iconEX Dark.ReaperThemeZip',env))
+  local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),theme,{output_strip=false})
+  local function at(w,hgt) g.ext_retina=2;g.w=w*2;g.h=hgt*2;g.blits={};g.calls={};v:frame() end
+  local function box(hit,x,y,w,hh) assert(math.abs(hit.x-x)<.01,hit.id..' x '..hit.x);eq(hit.y,y);assert(math.abs(hit.w-w)<.01,hit.id..' w '..hit.w);eq(hit.h,hh) end
+  local function blit(pattern) -- the pieces of one image: extent in device pixels, last piece
+    local x1,y1,x2,y2,last
+    for _,b in ipairs(g.blits) do if g.images[b[1]]:match(pattern) then
+      x1,y1=math.min(x1 or b[8],b[8]),math.min(y1 or b[9],b[9]);x2,y2=math.max(x2 or 0,b[8]+b[10]),math.max(y2 or 0,b[9]+b[11]);last=b
+    end end
+    return x1,y1,x2,y2,last
+  end
+  -- The strip of the native screenshot: 80 pt wide, 300 pt panel from 222 pt below the strip's top (hit boxes sit 1 pt left of the
+  -- script's x, as the panel does).
+  local T=220;local function B(y) return T+300-319+y end
+  at(80,520);eq(#v.bitmaps.missing,0);eq(v.layout.L,300);local k=v.hits
+  box(k.I_RECARM,7,T+8,18,20);box(k.I_RECMODE,25,T+8,20,20);box(k.I_RECMON,49,T+8,22,20);box(k.I_AUTOMODE,7,T+31,64,20)
+  box(k.I_RECINPUT,7,T+54,64,20);box(k.name,0,T+78,80,18);box(k.FX,5,T+102,22,20);box(k.I_FXEN,27,T+102,18,20);box(k.INFX,46,T+102,26,20)
+  box(k.D_PAN,6,T+124,20,20);box(k.meter,7,T+166,18,90);box(k.D_VOL,29,T+168,19,86)
+  box(k.B_MUTE,54,T+166,20,18);box(k.I_SOLO,54,T+184,20,18);box(k.B_PHASE,56,B(256),17,17);box(k.IO,54,B(279),20,18)
+  eq(k.fxadd2.y-k.fx1.y,16);assert(k.output.y+16<=T)
+  -- Artwork: the panel art 1 pt left of the strip's edge and a point taller than the frame, the selected cap over it, the fader's tall image from its
+  -- cap's top down to the groove's end (the cap's top row is the middle of the image).
+  local x1,y1,x2,y2=blit('mcp_color_bg%.png$');eq(x1,-2);eq(y1,T*2);eq(x2,158);eq(y2,(T+301)*2)       -- (the synthetic gfx reads no guide pixels: no overhang)
+  x1,y1,x2,y2=blit('mcp_sol1_bgsel%.png$');eq(x1,-2);eq(y1,T*2)
+  local _,_,_,_,cap=blit('mcp_volthumb%.png$');eq(cap[10],39);eq(cap[8],58);eq(cap[9]+cap[11],(T+254)*2);eq(cap[5],v.bitmaps.cache.mcp_volthumb.height//2)
+  -- The track's colour is one fill under the panel's top 160 pt, seen through the art's slot; nothing else takes it.
+  local function fills(r,gg,b) -- rect calls drawn in one colour
+    local out,cur={}
+    for _,c in ipairs(g.calls) do
+      if c[1]=='set' then cur=c elseif c[1]=='rect' and cur and math.abs(cur[2]*255-r)<1 and math.abs(cur[3]*255-gg)<1 and math.abs(cur[4]*255-b)<1 then out[#out+1]=c end
+    end
+    return out
+  end
+  local f=fills(68,68,68);eq(#f,1);eq(f[1][3],T*2);eq(f[1][5],320)          -- no colour: the theme's selected-track grey (col_seltrack)
+  h.GetTrackColor=function() return 1 end                                   -- the host's stand-in colour is 204,179,49
+  at(80,520);f=fills(204,179,49);eq(#f,1);eq(f[1][3],T*2);eq(f[1][5],320)
+  h.GetTrackColor=function() return 0 end
+  -- Pan modes, widths and heights: nothing overlaps or leaves the strip, in one strip or two.
+  for _,hgt in ipairs({409,454,600}) do
+    for _,w in ipairs({80,86,96}) do
+      for _,mode in ipairs({3,5,6}) do
+        h.a.values.I_PANMODE=mode;at(w,hgt);k=v.hits
+        eq(v.layout.L,math.max(300,math.min(320,hgt-220)))
+        local ids={'FX','I_FXEN','INFX','I_RECARM','I_RECMODE','I_RECMON','I_AUTOMODE','I_RECINPUT','name','B_MUTE','I_SOLO','B_PHASE','IO','D_VOL','meter'}
+        for _,id in ipairs(mode==6 and {'D_DUALPANL','D_DUALPANR'} or mode==5 and {'D_PAN','D_WIDTH'} or {'D_PAN'}) do ids[#ids+1]=id end
+        if mode==6 then eq(k.D_PAN,nil) end
+        local order={}
+        for _,id in ipairs(ids) do order[#order+1]=assert(k[id],id..' at '..w) end
+        for i,a in ipairs(order) do
+          assert(a.x>=-1.01 and a.x+a.w<=w+.01 and a.y>=0 and a.y+a.h<=hgt+.01,a.id..' leaves the strip at '..w..'x'..hgt)
+          for j=i+1,#order do local b=order[j]
+            assert(a.x+a.w<=b.x+.01 or b.x+b.w<=a.x+.01 or a.y+a.h<=b.y+.01 or b.y+b.h<=a.y+.01,a.id..' overlaps '..b.id..' at '..w..'x'..hgt)
+          end
+        end
+        assert(k.D_VOL.x>=k.meter.x+k.meter.w and k.IO.y+k.IO.h<=hgt)
+      end
+    end
+  end
+  h.a.values.I_PANMODE=3
+  -- Width beyond the native 80 pt goes to the meter; the fader and the button column move with it.
+  at(96,520);eq(v.hits.meter.w,34);eq(v.hits.D_VOL.x,45);eq(v.hits.B_MUTE.x,70);eq(v.hits.FX.x,5)
+  -- Master as the output strip: a track-style strip without the input and arm rows, a mono switch above routing, an unselected panel.
+  v.options.output_strip=true;at(172,520);k=v.hits
+  assert(k['out:I_SOLO'] and k['out:IO'] and k['out:FX'] and k['out:D_PAN'] and k['out:I_AUTOMODE'])
+  for _,id in ipairs({'I_RECARM','I_RECMODE','I_RECMON','I_RECINPUT','INFX','B_PHASE','name'}) do eq(k['out:'..id],nil) end
+  box(k['out:MONO'],86+54+6,B(222),20,48);assert(k['out:MONO'].y>=k['out:I_SOLO'].y+18 and k['out:MONO'].y+48<=k['out:IO'].y)
+  for _,b in ipairs(g.blits) do if g.images[b[1]]:match('mcp_sol1_bgsel%.png$') then assert(b[8]<172,'only the selected strip draws the cap') end end
+  local before=#h.writes
+  local hit=v.hits.I_SOLO;g.mouse_x=(hit.x+5)*2;g.mouse_y=(hit.y+5)*2;g.mouse_cap=1;v:frame();g.mouse_cap=0;v:frame()
+  eq(#h.writes,before+1);eq(h.writes[#h.writes][2],'I_SOLO')
+  -- Hybrid and Light draw from their own art with the same rows.
+  for _,name in ipairs({'Hybrid','Light'}) do
+    local t2=assert(Theme.resolve(home..'iconEX '..name..'.ReaperThemeZip',env))
+    local v2=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),t2,{output_strip=false})
+    g.ext_retina=2;g.w=160;g.h=1040;g.blits={};v2:frame();eq(#v2.bitmaps.missing,0);box(v2.hits.D_VOL,29,T+168,19,86)
+  end
+  -- Recognised by its script: one changed rectangle falls back to the generic strip.
+  local changed,n=theme.rtconfig:gsub('%[6 102 22 20%]','[6 102 22 21]')
+  assert(n==1);os.execute('mkdir -p \"'..env.cache..'/changed\"')
+  local f2=assert(io.open(env.cache..'/changed/rtconfig.txt','w'));f2:write(changed);f2:close()
+  eq(assert(Theme.resolve(env.cache..'/changed',env)).layout,'generic')
+end)
+
 test('Theme Adjuster values are read live only while following REAPER\'s theme', function()
   local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
   local params={{'LayoutA-verboseMcp',1},{'selDot',0}}

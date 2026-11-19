@@ -1400,6 +1400,131 @@ function M:lowerfm(s,W,H,c)
   end
   self.ox,self.mx=self.ox+1,self.mx-1
 end
+-- iconEX (Dark, Hybrid, Light): the macro's fixed 80 pt strip, rows hung from the 300 pt panel's top and bottom; the track's colour shows
+-- only through a slot in the panel art, a light cap marks the selected strip. Width beyond 80 pt goes to the meter and the right-hand columns.
+function M:lowerix(s,W,H,c)
+  local m,bm,T,L=self.model,self.bitmaps,c.T,c.L
+  local th,sel,mt=self.theme,c.selected,s.master
+  local d=math.max(W-80,-8)
+  local function B(v) return T+L-319+v end              -- measured: the lower controls sit a point below the script's 300 pt frame
+  self.ox,self.mx=self.ox-1,self.mx+1                    -- the mixer draws its panel one point left of the strip's own edge
+  local function image(name,x,y,w,h) return bm and bm:draw(name,0,x+self.ox,y,w,h,self.scale,true) end
+  local function art(name,state,x,y,w,h)
+    if not bm then return false end
+    for _,p in ipairs({'mcp_','track_','tcp_'}) do if bm:draw(p..name,state,x+self.ox,y,w,h,self.scale,true) then return true end end
+  end
+  -- `hx,hw`: a narrower hit box where the art of two buttons overlaps
+  local function button(id,name,x,y,w,h,action,menu,hx,hw)
+    local state=inside({x=hx or x,y=y,w=hw or w,h=h},self.mx,self.my) and ((self.g.mouse_cap&1)~=0 and 2 or 1) or 0
+    if not art(name,state,x,y,w,h) then
+      local p=PLAIN['mcp_'..name] or PLAIN['track_'..name] or {''}
+      self:rect(x,y,w,h,{78,78,78});self:rect(x+1,y+1,w-2,h-2,{62,62,62});self:text(p[1],x,y,w,h,p[2] or {150,150,150},'main',1)
+    end
+    return self:hit(id,hx or x,y,hw or w,h,action,menu)
+  end
+
+  -- Panel: the track's colour (the theme's selected grey without one) under the top 160 pt, the art's own grey under the rest, then the
+  -- art, whose slot at 150 pt is the only place the colour shows. 'MCP Layout' 2 and 3 swap the art; 1 is the default.
+  local lt=clamp(th.param('mcp_solid_color_Df',1),1,3)
+  local back=lt==3 and 'mcp_adjust_bg' or lt==2 and 'mcp_sol1_bg' or 'mcp_color_bg'
+  self:rect(1,T,W,L+1,bm and bm:tone(back,false,90,20) or {45,45,45}) -- (the art's panel is a point taller than the 300 pt frame)
+  self:rect(1,T,W,160,c.custom and c.base or c.colors.col_seltrack or {68,68,68})
+  image(back,0,T,W,L+1)
+  if sel then image(lt==3 and 'mcp_adjust_bgsel' or 'mcp_sol1_bgsel',0,T,W,L+1) end
+
+  -- Top rows: arm, record mode and monitor; automation; input; name; FX
+  if not mt then
+    button('I_RECARM',s.I_RECARM~=0 and 'recarm_on' or 'recarm_off',8,T+8,20,20,function() m:toggle(s,'I_RECARM') end,nil,8,18)
+    local rm=math.floor(s.I_RECMODE)
+    button('I_RECMODE',rm==2 and 'recmode_off' or (rm==0 or rm==7 or rm==8 or rm==16) and 'recmode_in' or 'recmode_out',26,T+8,20,20,function()
+      local items={}
+      for _,mode in ipairs(RECMODES) do items[#items+1]={mode[2],function() m:set(s,'I_RECMODE',mode[1]) end,checked=rm==mode[1]} end
+      self:menu(items)
+    end)
+    button('I_RECMON',s.I_RECMON==2 and 'monitor_auto' or s.I_RECMON==1 and 'monitor_on' or 'monitor_off',50,T+8,22,20,function() m:toggle(s,'I_RECMON') end)
+  end
+  local mode=math.floor(s.I_AUTOMODE)
+  local envn={[0]='env','env_read','env_touch','env_write','env_latch','env_preview'}
+  button('I_AUTOMODE',envn[mode] or 'env',8,T+31,64,20,function()
+    local items={}
+    for i,label in ipairs(AUTOMODES) do items[#items+1]={label,function() m:set(s,'I_AUTOMODE',i-1) end,checked=mode==i-1} end
+    self:menu(items)
+  end)
+  if not mt then -- the input is bare text on the panel
+    self:text(self:input_label(s.I_RECINPUT),9,T+54,63,20,{120,120,120},'main',0)
+    self:hit('I_RECINPUT',8,T+54,64,20,function() self:input_menu(s) end)
+  end
+  local ix,lb=th.ix,th.param('mcplabelbrightness_Df',175)
+  self:text(s.name,7,T+78,W-14,18,sel and ix.name_sel or {lb,lb,lb},'header',1)
+  if not mt then self:hit('name',1,T+78,W,18).double=function() self:rename(s) end end
+  local fxon=s.I_FXEN~=0
+  button('FX',#s.fx==0 and 'fx_empty' or fxon and 'fx_norm' or 'fx_dis',6,T+102,22,20,
+    function() if #s.fx==0 then self:add_fx(s) else m:fx_chain(s) end end,function() self:fx_menu(s) end)
+  button('I_FXEN',#s.fx==0 and 'fxempty_v' or fxon and 'fxon_v' or 'fxoff_v',28,T+102,18,20,function() m:toggle(s,'I_FXEN') end)
+  if not mt then button('INFX',(s.recfx or 0)>0 and 'fx_in_norm' or 'fx_in_empty',46,T+102,27,20,function() m:open_input_fx(s) end,nil,47,26) end
+
+  -- Pan: balance is one knob with a readout, stereo pan and dual pan are two bars
+  local pm=s.I_PANMODE
+  local function bar(key,stack,y,pos)
+    local name='tcp_'..stack                              -- the mixer falls back to the TCP's art
+    if not (bm and bm:get(name,true)) then name='mcp_'..stack end
+    if not (bm and bm:stack(name,(clamp(pos,-1,1)+1)/2,6+self.ox,y,68,10,self.scale)) then
+      self:rect(6,y+3,68,4,{40,40,40});self:rect(6+(clamp(pos,-1,1)+1)/2*66,y,2,10,{150,150,150})
+    end
+    self:pan_hit(s,key,6,y,68,10,68)
+  end
+  if pm>=5 then
+    local dual=pm==6
+    bar(dual and 'D_DUALPANL' or 'D_PAN','pan_knob_stack_2',T+124,dual and s.D_DUALPANL or s.D_PAN)
+    bar(dual and 'D_DUALPANR' or 'D_WIDTH','wid_knob_stack_2',T+136,dual and s.D_DUALPANR or s.D_WIDTH)
+  else
+    local p=(clamp(s.D_PAN,-1,1)+1)/2
+    if not (bm and (bm:knob_frame('mcp_pan_knob_stack',p,17+self.ox,T+134,self.scale) or bm:knob_frame('tcp_pan_knob_stack',p,17+self.ox,T+134,self.scale))) then
+      self:pointer(s,7,T+124,20,{60,60,60},true,s.D_PAN)
+    end
+    self:pan_hit(s,'D_PAN',7,T+124,20,20)
+    self:text(pan_label(s.D_PAN),29,T+124,44,20,{120,120,120},'main',1)
+  end
+
+  -- Meter (the scale only, until there is signal), fader on its groove, volume readout
+  local mh=L-214
+  self.layout={T=T,S=T+168,B=T+168+mh,L=L,meter=true}
+  self:meter(s,{x=8,y=T+166,w=18+d,h=mh+4,font='main',scale_color={100,100,100},readout_color={160,160,160},readout_y=-2,first=6,last=54,step=12,
+    labels=th.param('mcpdbscales_Df',1)~=0},c.colors)
+  local fx0=30+d
+  image('mcp_volbg',fx0+4,T+168,11,mh)                   -- the groove is as wide as the thumb's coloured part
+  local thumb=bm and bm:get('mcp_volthumb',true)
+  local ftop,fbottom=T+168+10,T+168+mh-10                -- the cap's centre travels inside a 10 pt margin
+  local fy=fbottom-self.mapping.to_position(s.D_VOL)*(fbottom-ftop)
+  if thumb then
+    -- One tall image: the cap is the top of the coloured fill, which runs on down from it, so from the cap's top the picture
+    -- is drawn as far as the groove goes (the guide column on its right is left out).
+    local k=self.scale/thumb.scale
+    local cap=thumb.height/2                             -- first row of the cap, in image rows
+    local x0=self:pxx(fx0)
+    local y0=self:px(fy-7.5)
+    local hh=math.min(self:px(T+168+mh)-y0,math.floor((thumb.height-cap)*k))
+    if hh>0 then bm:blit(thumb,0,cap,thumb.width-1,math.floor(hh/k+.5),x0,y0,math.floor((thumb.width-1)*k+.5),hh,k~=1) end
+  else self:rect(fx0+2,fy-7.5,15,15,{127,191,255}) end
+  local hit=self:hit('D_VOL',fx0,T+168,19,mh)
+  hit.kind,hit.token,hit.top,hit.bottom,hit.fader_y='D_VOL',s,ftop,fbottom,fy
+  self:text(gaintext(s.D_VOL),6+d,B(279)+.5,44,18,c.colors.col_tcp_text or {170,170,170},'header',1)
+
+  -- Button column: mute over solo, polarity (the master's mono switch instead), routing
+  button('B_MUTE',s.B_MUTE~=0 and 'mute_on' or 'mute_off',55+d,T+166,20,18,function() m:toggle(s,'B_MUTE') end)
+  button('I_SOLO',s.I_SOLO~=0 and 'solo_on' or 'solo_off',55+d,T+184,20,18,function() m:toggle(s,'I_SOLO') end)
+  if mt then button('MONO',s.mono and 'mono' or 'stereo',55+d,B(222),20,48,function() m:master_mono(s) end) -- the script's 50 pt would touch solo at 300 pt
+  else button('B_PHASE',s.B_PHASE~=0 and 'phase_inv' or 'phase_norm',57+d,B(256),17,17,function() m:toggle(s,'B_PHASE') end) end
+  local io='io'..(#s.sends>0 and '_s' or '')..((s.receives or 0)>0 and '_r' or '')..(s.B_MAINSEND==0 and '_dis' or '')
+  button('IO',io,55+d,B(279),20,18,function() self:show_routing(s) end,function() self:send_menu(s) end)
+
+  -- Track number on the footer: orange while armed
+  if not mt then
+    local rec=s.I_RECARM~=0
+    self:text(('%d'):format(s.IP_TRACKNUMBER),-2.5,B(300),W,20,rec and {255,128,64} or sel and ix.idx_sel or ix.idx,'header',1)
+  end
+  self.ox,self.mx=self.ox+1,self.mx-1
+end
 -- One mixer strip, drawn in its own coordinates (self.ox places it in the panel).
 function M:strip(s,W,H)
   local bm=self.bitmaps
@@ -1414,7 +1539,8 @@ function M:strip(s,W,H)
   local frx=self.theme and self.theme.layout=='frxst'
   local md=self.theme and self.theme.layout=='mydaw'
   local cx=self.theme and self.theme.layout=='csixsx'
-  local fm=self.theme and self.theme.layout=='flatmadness'
+  local ix=self.theme and self.theme.layout=='iconex'
+  local fm=ix or self.theme and self.theme.layout=='flatmadness' -- iconEX's racks are the same kind of list cells and handles
   local stock6=self.theme and self.theme.stock6
   local compact6=stock6 and self.theme.compact6
   local base=v2 and {130,130,130} or {152,152,152}
@@ -1433,7 +1559,7 @@ function M:strip(s,W,H)
   local ntext=custom and tips and name_color(base) or {235,235,235}
   -- Vertical sections, bottom-anchored like a mixer strip. The theme hides the input row on short strips.
   -- v1.95 needs a taller strip before it shows its full input panel; the racks keep at least ~200 pt.
-  local L=v2 and clamp(H-200,300,430) or v3 and clamp(H-200,260,340) or g80 and clamp(H-200,260,450) or frx and math.min(292,H-72) or md and clamp(H-200,300,380) or cx and clamp(H-250,290,371) or fm and clamp(H-250,300,380) or clamp(H-57,300,stock6 and 446 or 380)
+  local L=v2 and clamp(H-200,300,430) or v3 and clamp(H-200,260,340) or g80 and clamp(H-200,260,450) or frx and math.min(292,H-72) or md and clamp(H-200,300,380) or cx and clamp(H-250,290,371) or ix and clamp(H-220,300,320) or fm and clamp(H-250,300,380) or clamp(H-57,300,stock6 and 446 or 380)
   local showInFX=stock6 and L>=400
   local inh=showInFX and 54 or L>=350 and 42 or 22
   local label_h=stock6 and self.theme.label_h or 26
@@ -1464,7 +1590,7 @@ function M:strip(s,W,H)
   -- theme's unselected grey otherwise; the racks see the track's colour a quarter dimmer.
   local tint=cx and (selected and (custom and base or colors.col_seltrack) or colors.col_seltrack2) or nil
   if cx and custom then under=mul(base,.75) end
-  self:rect(0,0,W,T+1,fm and (bm and bm:tone('mcp_adjust_bg',false,1,100) or {35,35,35}) or bm and (bm.full_artwork or md or cx) and under or v3 and {38,38,38} or {61,61,61})
+  self:rect(0,0,W,T+1,fm and (bm and (ix and bm:tone('mcp_fxlist_bg') or bm:tone('mcp_adjust_bg',false,1,100)) or {35,35,35}) or bm and (bm.full_artwork or md or cx) and under or v3 and {38,38,38} or {61,61,61})
   -- theFRXST keeps its racks inside the strip: below the name bar, inset from the edges.
   local Y0,RX,fullW=md and 0 or 1,0,W
   if frx then
@@ -1518,7 +1644,7 @@ function M:strip(s,W,H)
     else self:sprite(art,hover and 1 or 0,md and .5 or -1,y,W-(md and 2.5 or 2),row) end
     if fx then
       local c=fx.offline and col('mcp_fx_offlined',{156,58,58}) or fx.enabled and col('mcp_fx_normal',{216,216,216}) or col('mcp_fx_bypassed',{160,126,59})
-      local left=md and 4 or cx and 3 or fm and 5        -- these themes align insert names left, as their mixers do
+      local left=md and 4 or cx and 3 or fm and (ix and 4 or 5) -- these themes align insert names left, as their mixers do
       self:text(fx.label or fx.name,left or 7.5,y-.5,W-(left and left+5 or 19.5),row,c,'list',left and 0 or 1)
       self:hit('fx'..i,0,y,W,row,function(cap)
         -- same modifiers as the mixer: Shift bypass, Alt delete, Cmd chain, Shift+Cmd offline, Alt+Shift(+Cmd) slot on selected (all) tracks
@@ -1591,6 +1717,7 @@ function M:strip(s,W,H)
   if frx then return self:lowerfx(s,W,H,{T=T,base=base,custom=custom,colors=colors,selected=selected}) end
   if v3 then return self:lower3(s,W,H,{T=T,L=L,base=base,custom=custom,colors=colors}) end
   if md then return self:lowermd(s,W,H,{T=T,base=base,custom=custom,colors=colors,selected=selected}) end
+  if ix then return self:lowerix(s,W,H,{T=T,L=L,base=base,custom=custom,colors=colors,selected=selected}) end
   if fm then return self:lowerfm(s,W,H,{T=T,L=L,base=base,custom=custom,colors=colors,selected=selected,under=under}) end
   if cx then return self:lowercsix(s,W,H,{T=T,L=L,base=base,custom=custom,colors=colors,selected=selected,tint=tint or {150,150,150}}) end
   if g80 then return self:lower80(s,W,H,{T=T,base=base,custom=custom,colors=colors,selected=selected}) end
