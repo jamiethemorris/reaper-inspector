@@ -1287,6 +1287,107 @@ test('iconEX: the macro\'s rows from the panel top and bottom, the track colour 
   eq(assert(Theme.resolve(env.cache..'/changed',env)).layout,'generic')
 end)
 
+test('nvk_THEME: the script\'s top-down rows over a fader that takes what is left, bottom rows hung from the strip\'s end, one script for Dark and Light', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  h.GetOS=function() return 'macOS-arm64' end
+  local Theme=dofile('inspector/theme.lua')
+  local home=os.getenv('HOME')..'/Library/Application Support/REAPER/ColorThemes/'
+  local env={cache=h.cache..'/nvk',mkdir=function(p) os.execute('mkdir -p \"'..p..'\"') end}
+  -- Dark and Light ship the same rtconfig.txt (and the same mixer artwork); recognition reads the script, never the file name.
+  for _,name in ipairs({'Dark','Light'}) do
+    local t=assert(Theme.resolve(home..'nvk_THEME_'..name..'.ReaperThemeZip',env),name);eq(t.layout,'nvk')
+    eq(t.row_height,16);eq(t.font,'Verdana');eq(t.param('mcp_PaddingSize_param',0),3);eq(t.param('color_SelectionOpacity_param',0),28)
+    eq(assert(Theme.resolve(home..'nvk_THEME_'..name..'.ReaperTheme',env)).layout,'nvk')
+  end
+  local theme=assert(Theme.resolve(home..'nvk_THEME_Dark.ReaperThemeZip',env))
+  local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),theme,{output_strip=false})
+  local function at(w,hgt) g.ext_retina=2;g.w=w*2;g.h=hgt*2;g.blits={};g.calls={};v:frame() end
+  local function box(hit,x,y,w,hh) assert(math.abs(hit.x-x)<.01,hit.id..' x '..hit.x);assert(math.abs(hit.y-y)<.01,hit.id..' y '..hit.y);assert(math.abs(hit.w-w)<.01,hit.id..' w '..hit.w);assert(math.abs(hit.h-hh)<.01,hit.id..' h '..hit.h) end
+  -- The native screenshot's strip: 86 pt wide, 525 pt tall, stereo pan. Every box is the script's rectangle at 200% (a 3 pt padding):
+  -- the racks' box from y 30 (a fifth of the height), routing 3 pt below it, then automation, pan, fader (what is left), record row, mute row.
+  h.a.values.I_PANMODE=5
+  at(86,525);eq(#v.bitmaps.missing,0);local k=v.hits
+  box(k.I_RECMODE,3,3,24,24);box(k.I_RECINPUT,27,3,54,24)
+  box(k.fx1,3,30,78,16)
+  box(k.IO,3,138,24,24);box(k.FX,30,138,24,24);box(k.I_FXEN,57,138,24,24);box(k.I_AUTOMODE,3,165,24,24)
+  box(k.D_PAN,3,192,36,36);box(k.D_WIDTH,45,192,36,36)
+  box(k.D_VOL,3,231,24,185);box(k.meter,30,231,51,185)
+  box(k.INFX,3,419,24,24);box(k.I_RECARM,30,419,24,24);box(k.I_RECMON,57,419,24,24)
+  box(k.B_MUTE,3,446,24,24);box(k.I_SOLO,30,446,24,24);box(k.B_PHASE,57,446,24,24);box(k.name,3,473,78,24)
+  assert(k.D_VOL.bottom-k.D_VOL.top==185-28)
+  -- The track's colour is the number pill's fill, nothing else (the host's stand-in colour is 204,179,49); a plain track gets the theme's grey.
+  local function fills(r,gg,b)
+    local out,cur={}
+    for _,c in ipairs(g.calls) do
+      if c[1]=='set' then cur=c elseif c[1]=='rect' and cur and math.abs(cur[2]*255-r)<1 and math.abs(cur[3]*255-gg)<1 and math.abs(cur[4]*255-b)<1 then out[#out+1]=c end
+    end
+    return out
+  end
+  local f=fills(150,150,150);eq(#f,1);eq(f[1][3],500*2);eq(f[1][4],78*2)       -- selected, no colour: the pill's grey
+  h.GetTrackColor=function() return 1 end;at(86,525)
+  f=fills(204,179,49);eq(#f,1);eq(f[1][3],500*2);eq(#fills(204,179,49),1)
+  h.GetTrackColor=function() return 0 end
+  -- Pan modes, widths and heights: nothing overlaps or leaves the strip; the script's own rules decide what is shown.
+  for _,hgt in ipairs({340,409,454,600}) do
+    for _,w in ipairs({80,86,96,120}) do
+      for _,mode in ipairs({3,5,6}) do
+        h.a.values.I_PANMODE=mode;at(w,hgt);k=v.hits
+        local ids={'I_RECMODE','I_RECINPUT','fx1','output','INFX','I_RECARM','I_RECMON','B_MUTE','I_SOLO','B_PHASE','name','D_VOL','meter'}
+        for _,id in ipairs(mode==6 and {'D_DUALPANL','D_DUALPANR'} or mode==5 and {'D_PAN','D_WIDTH'} or {'D_PAN'}) do ids[#ids+1]=id end
+        if mode==6 then eq(k.D_PAN,nil) end
+        local order={}
+        for _,id in ipairs(ids) do
+          if k[id] then order[#order+1]=k[id] else assert(id:match('^D_') and hgt<400,id..' missing at '..w..'x'..hgt) end -- only the pan row may be dropped, by the script's own rule
+        end
+        for _,id in ipairs({'FX','I_FXEN','IO','I_AUTOMODE'}) do if k[id] then order[#order+1]=k[id] end end
+        assert(v.fx_box.rows+v.send_box.rows+1>=3,'racks keep 3 rows at '..hgt) -- inserts, sends and the pinned master send
+        for i,a in ipairs(order) do
+          assert(a.x>=0 and a.x+a.w<=w+.01 and a.y>=0 and a.y+a.h<=hgt+.01,a.id..' leaves the strip at '..w..'x'..hgt)
+          for j=i+1,#order do local b=order[j]
+            assert(a.x+a.w<=b.x+.01 or b.x+b.w<=a.x+.01 or a.y+a.h<=b.y+.01 or b.y+b.h<=a.y+.01,a.id..' overlaps '..b.id..' at '..w..'x'..hgt)
+          end
+        end
+        assert(k.D_VOL.h>=40,'fader too short at '..hgt)
+      end
+    end
+  end
+  h.a.values.I_PANMODE=3
+  -- Over 420 pt the racks' box is a fifth of the height (the script's own rule).
+  -- Below that limit the theme drops the box; the Inspector keeps it (a fifth of the height, at least 3 rows) and the fader gives up the room.
+  at(86,409);assert(v.fx_box.rows+v.send_box.rows+1>=4);assert(math.abs(v.hits.IO.y-(30+409/5+3))<.01);box(v.hits.fx1,3,30,78,16)
+  assert(v.hits.D_VOL.h>=80);assert(v.hits.fx1.action and v.hits.output.action)
+  at(86,340);assert(v.fx_box.rows+v.send_box.rows+1>=3);box(v.hits.fx1,3,30,78,16);assert(v.hits.output.y+16<=30+340/5+.01)
+  local b0=#h.writes;g.mouse_x,g.mouse_y=0,0;v.hits.fx1.action(8);assert(#h.writes>b0,'a rack row acts on a short strip')  -- shift-click bypasses the insert
+  at(86,454);box(v.hits.fx1,3,30,78,16);assert(math.abs(v.hits.IO.y-(30+454/5+3))<.01)
+  at(86,600);assert(math.abs(v.hits.IO.y-(30+600/5+3))<.01)
+  -- Width beyond the native 86 pt goes to the right-hand columns and the meter; the left column stays put.
+  at(96,525);k=v.hits
+  box(k.B_MUTE,3,446,24,24);box(k.I_SOLO,35,446,24,24);box(k.B_PHASE,67,446,24,24);box(k.meter,30,231,61,185);box(k.I_FXEN,67,138,24,24)
+  -- Master as the output strip: no input, arm, polarity or name rows, a mono switch beside automation, the mute pair centred.
+  v.options.output_strip=true;at(172,525);k=v.hits
+  assert(k['out:B_MUTE'] and k['out:I_SOLO'] and k['out:IO'] and k['out:FX'] and k['out:D_PAN'] and k['out:I_AUTOMODE'] and k['out:D_VOL'])
+  for _,id in ipairs({'I_RECARM','I_RECMODE','I_RECMON','I_RECINPUT','INFX','B_PHASE','name'}) do eq(k['out:'..id],nil) end
+  local mo=k['out:MONO'];assert(mo and math.abs(mo.y-k['out:I_AUTOMODE'].y)<.01 and mo.x>k['out:I_AUTOMODE'].x+24)
+  local mu,so=k['out:B_MUTE'],k['out:I_SOLO'];assert(math.abs(mu.y-446)<.01 and math.abs(so.x-mu.x-27)<.01 and mu.x>86+10)
+  assert(math.abs(k['out:IO'].y-(30+525/3+3))<.01) -- its box is a third of the height
+  assert(math.abs(mu.x-(86+16))<.01,'measured: the native pair starts 16 pt into the strip');eq(k['out:D_WIDTH'],nil)
+  h.master.values.I_PANMODE=5;at(172,525);k=v.hits   -- the master's second knob (width) in stereo pan, as in the native mixer
+  box(k['out:D_PAN'],86+2,262,36,36);box(k['out:D_WIDTH'],86+44,262,36,36);h.master.values.I_PANMODE=nil
+  -- Click through to the model.
+  local before=#h.writes
+  local hit=v.hits.I_SOLO;g.mouse_x=(hit.x+5)*2;g.mouse_y=(hit.y+5)*2;g.mouse_cap=1;v:frame();g.mouse_cap=0;v:frame()
+  eq(#h.writes,before+1);eq(h.writes[#h.writes][2],'I_SOLO')
+  -- Light draws the same rows from the same script.
+  local t2=assert(Theme.resolve(home..'nvk_THEME_Light.ReaperThemeZip',env))
+  local v2=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),t2,{output_strip=false})
+  g.ext_retina=2;g.w=172;g.h=1050;g.blits={};v2:frame();eq(#v2.bitmaps.missing,0);box(v2.hits.D_VOL,3,231,24,185)
+  -- Recognised by its script: one changed rectangle falls back to the generic strip.
+  local changed,n=theme.rtconfig:gsub('set mcpLargeButtonWidth%s+%+ %* scale 48','set mcpLargeButtonWidth + * scale 49')
+  assert(n==1);os.execute('mkdir -p \"'..env.cache..'/changed\"')
+  local f2=assert(io.open(env.cache..'/changed/rtconfig.txt','w'));f2:write(changed);f2:close()
+  eq(assert(Theme.resolve(env.cache..'/changed',env)).layout,'generic')
+end)
+
 test('Theme Adjuster values are read live only while following REAPER\'s theme', function()
   local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
   local params={{'LayoutA-verboseMcp',1},{'selDot',0}}

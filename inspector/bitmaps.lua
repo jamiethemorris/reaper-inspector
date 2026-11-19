@@ -15,7 +15,8 @@ for name in ([[mcp_recarm_off mcp_recarm_on mcp_monitor_off mcp_monitor_on mcp_m
   track_monitor_off track_monitor_on track_monitor_auto
   mcp_mono mcp_stereo mixer_menu mcp_solodefeat_on mcp_recarm_auto mcp_recarm_auto_on
   track_mono track_stereo track_recmode_in track_recmode_out track_recmode_off render
-  track_io track_io_dis track_io_r track_io_r_dis track_io_s track_io_s_dis track_io_s_r track_io_s_r_dis]]):gmatch('%S+') do horizontal[name]=true end
+  track_io track_io_dis track_io_r track_io_r_dis track_io_s track_io_s_dis track_io_s_r track_io_s_r_dis
+  mcp_custom_customFX mcp_custom_customFX2 mcp_custom_stereo_off mcp_custom_quad_off mcp_custom_surround_off]]):gmatch('%S+') do horizontal[name]=true end
 local vertical={}
 local borrow={}
 for _,control in ipairs({'mute','solo'}) do

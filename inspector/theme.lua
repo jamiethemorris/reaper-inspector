@@ -201,6 +201,69 @@ local function iconex_of(cfg)
     idx=rgb(' set mcp%.trackidx%.color %?recarm %[%d+ %d+ %d+%] %?track_selected %[%d+ %d+ %d+%] '..p),
     name_sel=rgb(' set mcp%.label%.color track_selected=1 '..p)}
 end
+-- nvk_THEME (Dark and Light share one rtconfig.txt): `drawMcp` and `drawMasterMcp`, one 86 pt strip written as top-down rows (ext mixer box,
+-- routing, automation, pan) over a fader/meter section whose height is what is left above the bottom-anchored rows. Their own overstep rule
+-- drops rows on short strips. Recognised by the exact statements the layout draws; anything changed falls back to the generic strip.
+local function nvk_of(cfg)
+  local script=' '..cfg:gsub(';[^\r\n]*',''):gsub('\\%s*[\r\n]',' '):gsub('%s+',' ')..' '
+  if not (script:find(' macro drawMcp scale Layout ',1,true) and script:find(' macro drawMasterMcp scale Layout ',1,true)) then return false end
+  for _,s in ipairs({
+    'set mcpX_margin * scale mcp_PaddingSize_param{0}',
+    'set mcpXStartingMargin + * scale mcp_PaddingSize_param{0} scale==1 1 scale==1.5 1 scale==2 2',
+    'set mcpSizeWidth + + * scale [72] * 2 mcpXStartingMargin{0} * 2 mcpX_margin{0}',
+    'set mcpRealWidth - w scale==1 2 scale==1.5 2 scale==2 4',
+    'set mcp.custom.idxSection - - + [mcpXStartingMargin mcpMainSection{3} mcpRealWidth] * scale [0 -22 0 22] * 2 [0 0 mcpX_margin] [0 mcpYStartingMargin]',
+    'set mcp.custom.labelSection - + [mcp.custom.idxSection mcp.custom.idxSection mcp.custom.idxSection] * scale [0 -24 0 24] [0 mcpY_margin]',
+    'set mcp.mute + - [mcpXStartingMargin mcp.custom.labelSection{1}] [0 mcpY_margin] * scale [0 -24 24 24]',
+    'set mcp.solo + + mcp.mute [mcp.mute{2}] [mcpX_margin]',
+    'set mcp.phase + + mcp.solo [mcp.solo{2}] [mcpX_margin]',
+    'set mcp.fxin ?mcpHideRecMisc{0} [0] - mcp.mute + [0 mcpY_margin] [0 mcp.mute{3}]',
+    'set mcp.recarm ?mcpHideRecMisc{0} [0] - mcp.solo + [0 mcpY_margin] [0 mcp.solo{3}]',
+    'set mcp.recmon ?mcpHideRecMisc{0} [0] - mcp.phase + [0 mcpY_margin] [0 mcp.phase{3}]',
+    'set mcp.custom.recarmBG + + mcp.recarm [0 0 mcp.recmon{2}] [0 0 mcpX_margin]',
+    'set mcpRecInputSection mcpMainSection{3}<=mcpTopSecHeightTh{0} [0] - + [mcpXStartingMargin mcpY_margin mcpRealWidth] * scale [0 0 0 24] * 2 [0 0 mcpX_margin]',
+    'set mcp.recmode ?mcpHideRecMisc{0} [0] + [mcpRecInputSection{0} mcpRecInputSection{1} 0 mcpRecInputSection{3}] * scale [0 0 24]',
+    'set mcp.recinput + [mcp.recmode{0} mcp.recmode{1} mcpRecInputWidth{0} mcp.recmode{3}] [mcp.recmode{2}]',
+    'set mcp.extmixer.mode [1]',
+    'set mcpExtMixerHeightLimit * scale 420',
+    'set mcpExtmixerH mcpMainSection{3}<=mcpExtMixerHeightLimit{0} [0] / mcpMainSection{3} mcpMainSection{3}>extmixerHeightFactorThreshscaled{0} extmixerHeightFactorMaxparam extmixerHeightFactorMinparam',
+    'set mcp.extmixer.position + + [mcpXStartingMargin mcpRecInputSection{1} mcpExtmixerW{0} mcpExtmixerH{0} 0 0 0 0] [0 mcpRecInputSection{3}] mcpMainSection{3}>mcpExtMixerHeightLimit{0} [0 mcpY_margin]',
+    'set mcp.io + + + [mcpXStartingMargin{0} mcp.extmixer.position{1}] * scale [0 0 24 24] [0 mcpY_margin] [0 mcp.extmixer.position{3}]',
+    'set mcpLargeButtonWidth + * scale 48 mcpX_margin',
+    'set mcp.custom.fx_background + + + [mcp.io{0} mcp.io{1} mcpLargeButtonWidth{0}] * scale [0 0 0 24] [mcp.io{2}] [mcpX_margin]',
+    'set mcp.fx + [mcp.custom.fx_background{0} mcp.custom.fx_background{1}] * scale [0 0 24 24]',
+    'set mcp.fxbyp + + [mcp.custom.fx_background{0} mcp.custom.fx_background{1}] * scale [-25 0 24 24] [mcp.custom.fx_background{2}]',
+    'set mcp.env + + + [mcpXStartingMargin{0} mcp.io{1}] * scale [0 0 24 24] [0 mcpY_margin] [0 mcp.io{3}]',
+    'set mcp.custom.custom_fx + + mcp.env [mcp.env{2}] [mcpX_margin]',
+    'set mcp.custom.custom_fx2 + + mcp.custom.custom_fx [mcp.custom.custom_fx{2}] [mcpX_margin]',
+    'set mcp.pan + + [mcpPanX{0} mcp.env{1} mcpPanWidthW{0} mcpPanWidthW{0}] [0 mcp.env{3}] [0 mcpY_margin]',
+    'set mcp.pan trackpanmode==6 + + + [mcpPanX{0} mcp.env{1} mcp.custom.idxSection{2}] [0 mcp.env{3}] [0 mcpY_margin] * scale [0 0 0 16] .',
+    'set mcp.width + + mcp.pan [mcpPanWidthDistance{0}] [mcp.pan{2}]',
+    'set mcp.width trackpanmode==6 + + mcp.pan [0 mcp.pan{3}] [0 mcpY_margin] .',
+    'set mcpVolumeAboveNeighbour ?isOverstepping_mcp.fx{0} mcp.extmixer.position{0}>1 mcp.extmixer.position mcpRecInputSection ?isOverstepping_mcp.env{0} mcp.fx ?isOverstepping_mcp.pan{0} mcp.env mcp.width',
+    'set mcpVolumeHeight - mcpVolumeBelowNeighbour{1} + + + * 2 mcpY_margin mcpVolumeAboveNeighbour{1} mcpVolumeAboveNeighbour{3} * scale [0 4]',
+    'set mcpVolumeSection mcpMainSection{3}<=mcpVolSecHeightTh{0} [0] - + [mcpVolumeSectionX{0} mcpVolumeBelowNeighbour 0 mcpVolumeHeight{0}] * scale [0 0 24] + [0 mcpY_margin] [0 mcpVolumeHeight{0}]',
+    'set mcp.meter + + [mcpVolumeSection mcpVolumeSection mcpLargeButtonWidth{0} mcpVolumeSection] [mcpVolumeSection{2}] [mcpX_margin]',
+    'set mmcpXStartingMargin + * scale master_mcp_mPaddingSize_param{0} 1',
+    'set mmcpSizeWidth + + * scale [72] * 2 mmcpXStartingMargin{0} * 2 mmcpX_margin{0}',
+    'set master.mcp.custom.idxSection - - + [mmcpXStartingMargin h mmcpMSWidthNoBlackMargin] * scale [0 -22 0 22] * 2 [0 0 mmcpX_margin] [0 mmcpYStartingMargin]',
+    'set master.mcp.custom.firstRow - + + [0 master.mcp.custom.idxSection{1}] / [mmcpMSWidth] 2 * scale [-42 -24 84 24] [0 mmcpY_margin]',
+    'set firstButton + [mmcpXStartingMargin master.mcp.custom.firstRow{1}] * scale [0 0 24 24]',
+    'set master.mcp.mute - + [mmcpMuteX{0} master.mcp.custom.firstRow{1}] * scale [-24 -24 24 24] [0 mmcpY_margin]',
+    'set mmcpExtmixerH h<=mmcpExtMixerHeightLimit{0} [0] / h h>extmixerHeightFactorThresh{0} masterExtmixerHeightFactorMaxparam masterExtmixerHeightFactorMinparam',
+    'set master.mcp.io + + + [mmcpXStartingMargin{0} mmcpIOAboveNB{1}] * scale [0 0 24 24] [0 mmcpY_margin] [0 mmcpIOAboveNB{3}]',
+    'set master.mcp.env + + + [mmcpXStartingMargin{0} master.mcp.io{1}] * scale [0 0 24 24] [0 mmcpY_margin] [0 master.mcp.io{3}]',
+    'set master.mcp.mono + + master.mcp.custom.fx_background [0 master.mcp.custom.fx_background{3}] [0 mmcpY_margin]',
+    'set mmcpVolumeHeight - mmcpVolumeBelowNeighbour{1} + + + * 2 mmcpY_margin mmcpVolumeAboveNeighbour{1} mmcpVolumeAboveNeighbour{3} * scale [0 4]',
+    'set master.mcp.volumeSection - + [firstButton{0} mmcpVolumeBelowNeighbour 0 mmcpVolumeHeight{0}] * scale [0 0 24] + [0 mmcpY_margin] [0 mmcpVolumeHeight{0}]',
+    'set master.mcp.meter [secondButton{0} master.mcp.volumeSection{1} mmcpLargeButtonWidth{0} master.mcp.volumeSection{3}]',
+    'set yLimit - mcp.mute{1} * scale 128',
+    'set yLimit - master.mcp.mute{1} * scale 128',
+  }) do
+    if not script:find(' '..s..' ',1,true) then return false end
+  end
+  return true
+end
 -- The 6-style mixer macro, comments dropped and whitespace collapsed, for exact `has(...)` matching.
 local function mcp_script(cfg)
   local body=('\n'..cfg:gsub(';[^\r\n]*','')):match('\n[ \t]*macro[ \t]+drawMcp[ \t]+scale[ \t]*[\r\n]+([%s%S]-)\n[ \t]*endmacro%f[%W]')
@@ -287,6 +350,7 @@ local function layout_of(cfg)
     local ix=iconex_of(cfg)
     if ix then return 'iconex',nil,nil,nil,nil,nil,nil,ix end
   end
+  if cfg:find('macro%s+drawMcp%s+scale%s+Layout') and nvk_of(cfg) then return 'nvk' end
   if not cfg:find('macro%s+drawMcp') and cfg:find('set mcp_narrow',1,true) then
     local gray=gray80_of(cfg)
     if gray then return 'gray80',nil,nil,nil,nil,nil,gray end
@@ -333,6 +397,13 @@ local function finish(t, cfg, inis)
     -- name, readout and track number (the sizes Flat Madness's mixer, which names the same fonts, was measured at).
     t.row_height,t.send_row_height = 16,16
     t.font,t.fonts = 'Helvetica Neue',{main={12.2,true},list={12.2,true},sends={12.2,true},header={14.7,true},bold={14.7,true}}
+  end
+  if t.layout=='nvk' then
+    -- Lists are 16 pt rows (fx insert height parameter); every label is Verdana regular: user_font10 (24 px) for lists, user_font12 (27 px)
+    -- for the name, input and track number; the meter's scale is a narrow sans (measured). Most mixer art exists only at its 200% size or only in the base folder, drawn 1:1.
+    t.row_height,t.send_row_height = 16,16
+    t.font,t.fonts = 'Verdana',{main={12.3,false,'Arial Narrow'},list={15.2},sends={15.2},header={17.2},bold={15.9}}
+    t.unscaled_base = true
   end
   if t.layout=='csixsx' then
     -- Its 200% fonts: Roboto 10 pt for labels and input, 15 pt for the name; Roboto Condensed regular 12 pt for the volume
@@ -393,6 +464,7 @@ local function finish(t, cfg, inis)
     end
     return fallback
   end
+  if t.layout=='nvk' then t.row_height=math.max(16,math.min(40,t.param('mcp_fx_insert_height_param',16)));t.send_row_height=t.row_height end -- its Theme Adjuster row height
   return t
 end
 -- A theme archive is read in place. Only the images actually drawn are copied out, on demand, into
