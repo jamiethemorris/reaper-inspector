@@ -90,6 +90,81 @@ local function mydaw_of(cfg)
     and has('set master.mcp.mono h_maxind{x}<s176{0} [0] + low_button_ident [low_ident{0} s20{0} s25{0} s15{0} 0 1 0 1]')
     and has('set s380 * Scale 380') and has('set sm47 * Scale -47') and true or false
 end
+-- CSIX AE-Narrow and SX (six editions, one mixer macro): a control panel anchored to the bottom, every
+-- control hung from its section or from the meter's width, which grows with `nchan_offs`. The wide form is
+-- recognised by the exact rectangles the layout draws; anything changed falls back to the generic strip.
+local function csixsx_of(cfg)
+  local body=('\n'..cfg:gsub(';[^\r\n]*','')):match('\n[ \t]*macro[ \t]+drawMcp[ \t]+scale[ \t]*[\r\n]+([%s%S]-)\n[ \t]*[Ee]nd[Mm]acro%f[%W]')
+  local script=body and ' '..body:gsub('\\%s*[\r\n]',' '):gsub('%s+',' ')..' '
+  if not script then return false end
+  for _,s in ipairs({
+    'set fx_sec + [sidebar_sec{2} 0 mcp.size{0}] * scale [0 0 0 33]',
+    '* scale !panLabelsMode{0} h<hide_pan_s{0} [0 0 0 0] [0 0 0 35] [0 0 0 45]',
+    '* scale h<hide_input_s{0} [0 4 0 30] h<hide_inputFX_s{0} [0 -1 0 46] !labelsMode{0} [0 -1 0 58] [0 -3 0 56]',
+    'set bot_sec_height ?mcp_control_align{0} + * scale 47 * mcp_maxfolderdepth{0} mcp_indent_s + * scale 47 * folderdepth mcp_indent_s',
+    '+ * scale [76 371 0 220] * scale !track_selected !mcp_fxembed{0} [0] [0] [0]',
+    'set nchan_offs ?meterExpMode{0} * - tracknch 2 mcp_meterExp_s{0} [0]',
+    'set padding * scale stretch_sec_height{0}<padding_reduction_h{0} stretch_sec_height{0}<padding_reduction_h{1} [0 2] [0 3] [0 4]',
+    'set mcp.fx + [fx_sec 0 nchan_offs_twothird{0}] * scale ?narrowMode{0} [4 8 28 20] [5 8 37 20]',
+    'set mcp.fxbyp + + [mcp.fx mcp.fx nchan_offs_third{0}] [mcp.fx{2}] * scale ?narrowMode{0} [0 0 19 20] [0 0 29 20]',
+    '[7 6 63 9] [7 12 63 9] width_visible{0}!=0 + [nchan_offs_half{0}] * scale !panLabelsMode{0} [10 2 26 26] [10 2 26 26] + [nchan_offs_half{0}] * scale !panLabelsMode{0} [26 2 26 26] [26 2 26 26]',
+    '[7 16 63 9] [7 22 63 9] width_visible{0}!=0 + [nchan_offs_half{0}] * scale !panLabelsMode{0} [43 2 26 26] [43 2 26 26] [0]',
+    'width_visible{0}==2 + [nchan_offs_half{0}] * scale [19 -11 40 9] + [nchan_offs_half{0}] * scale [5 28 35 10] + [nchan_offs_half{0}] * scale [21 28 35 10]',
+    '[7 33 63 9] width_visible{0}!=0 + [nchan_offs_half{0}] * scale !panLabelsMode{0} [0] [43 31 30 9] [0]',
+    'set mcp.recinput h<hide_input_s{0} [0] + [in_sec in_sec nchan_offs{0}] * scale ?narrowMode{0} width_visible{0}==3 [0] [6 2 43 16] [6 2 65 16]',
+    '+ [mcp.recinput mcp.recinput] * scale [0 16 30 12] + [mcp.recinput mcp.recinput] * scale [0 16 30 12]',
+    '[mcp.fxin{0} mcp.fxin] * scale [32 0 11 12]', '* scale [43 0 11 12]', '* scale [54 0 11 12]',
+    'set mcp.recmode + + [in_sec in_sec] [0 mcp.fxin{3}] * scale + ?narrowMode{0} [6 16 41 16] [6 16 41 16] ?mcp.fxin{1} [0 2] [0 1]',
+    'set mcp.phase + + + [mcp.recmode mcp.recmode] * scale ?narrowMode{0} [29 0 16 17] [29 0 16 17]',
+    '+ [stretch_sec stretch_sec nchan_offs{0} stretch_sec] * scale !labelsMode{0} [4 4 25 -8] [4 23 25 -27]',
+    'set mcp.recarm !recSec{0} [0] + * scale [0 0 36 24] ?narrowMode{0} - + [mcp.meter{2}] [stretch_sec stretch_sec] * scale [3 17 0] + - [stretch_sec stretch_sec] * scale [-19 17] [mcp.meter{2}]',
+    'set mcp.recmon !recSec{0} [0] + + [0 padding] [mcp.recarm mcp.recarm] * scale [9 20 21 20]',
+    'set mcp.mute + * scale ?recSec{0} [8 44 21 20] [8 20 21 20]',
+    'set mcp.solo + + [0 padding] [mcp.mute mcp.mute] * scale ?narrowMode{0} [0 18 19 18] [0 21 21 20]',
+    '+ [stretch_sec stretch_sec mcp.meter{2} mcp.meter{3}] * scale !labelsMode{0} [1 0 22 0] [1 0 22 0]',
+    '+ + + * [1 1 scale 1] [mcp.meter{2} mcp.solo{1} 22 stretch_sec] * scale ?labelsMode{0} [4 -9 0 -25] [4 -26 0 -8] [sidebar_sec{2} 0] * scale !recSec{0} [1 4] [1 -20]',
+    'set mcp_env_hide_h * scale ?narrowMode{0} [90 90] [126 136]',
+    '+ + [mcp.mute stretch_sec] * scale !labelsMode{0} [1 -20 21 14] [1 -30 21 24]',
+    'set mcp_io_hide_h * scale ?narrowMode{0} [90] [100]',
+    '* scale !labelsMode{0} [-1 23 23 22] [-1 23 23 22]',
+    'set mcp.label.margin + [0 0 0 0 0.5] * scale [4 2 4 7]',
+  }) do
+    if not script:find(' '..s..' ',1,true) then return false end
+  end
+  return true
+end
+-- The 6-style mixer macro, comments dropped and whitespace collapsed, for exact `has(...)` matching.
+local function mcp_script(cfg)
+  local body=('\n'..cfg:gsub(';[^\r\n]*','')):match('\n[ \t]*macro[ \t]+drawMcp[ \t]+scale[ \t]*[\r\n]+([%s%S]-)\n[ \t]*endmacro%f[%W]')
+  return body and ' '..body:gsub('\\%s*[\r\n]',' '):gsub('%s+',' ')..' '
+end
+-- CSIX editions share one mixer script but write their own text colours into it: peak readout,
+-- volume readout (selected, other), track number (selected, other) and the name's default colour.
+local function csix_colors(cfg)
+  local script=mcp_script(cfg) or ''
+  local function rgbs(key)
+    local list={}
+    for r,g,b in (script:match(' set '..key:gsub('%p','%%%0')..' (.-) set ') or ''):gmatch('%[(%d+) (%d+) (%d+)[%] ]') do
+      list[#list+1]={tonumber(r),tonumber(g),tonumber(b)}
+    end
+    return list
+  end
+  local function pair(list) if #list>=2 then return list[#list-1],list[#list] end return list[1] end
+  -- Meter scale lettering over unlit lanes: the last rgba of the non-armed choice.
+  local function rgba(key)
+    local last
+    for r,g,b,a in (script:match(' set '..key:gsub('%p','%%%0')..' (.-) set ') or ''):gmatch('%[(%d+) (%d+) (%d+) (%d+)[%] ]') do last={tonumber(r),tonumber(g),tonumber(b),tonumber(a)} end
+    return last
+  end
+  local readout=rgbs('mcp.meter.readout.color')
+  local c={readout=readout[#readout],scale=rgba('mcp.meter.scale.color.unlit.top')}
+  c.vol_sel,c.vol=pair(rgbs('mcp.volume.label.color'))
+  c.idx_sel,c.idx=pair(rgbs('mcp.trackidx.color'))
+  -- Only the plain `?track_selected [r g b] [r g b]` form (the Theme Adjuster's default choice) is read.
+  local p={(cfg:match('[Mm]acro%s+trackLabelColor%s+element(.-)[Ee]nd[Mm]acro') or ''):match('%?track_selected%s+%[(%d+)%s+(%d+)%s+(%d+)%]%s+%[(%d+)%s+(%d+)%s+(%d+)%]')}
+  if p[1] then c.name_sel,c.name={tonumber(p[1]),tonumber(p[2]),tonumber(p[3])},{tonumber(p[4]),tonumber(p[5]),tonumber(p[6])} end
+  return c
+end
 local function layout_of(cfg)
   if cfg:sub(1,600):find('Reapertips',1,true) then
     -- v1.95 redesigned the mixer strip (new sizes and artwork, a sidebar option); v1.90 and earlier share the first layout.
@@ -104,9 +179,8 @@ local function layout_of(cfg)
     return 'default7'
   end
   -- Recognise the 6-style normal mixer, allowing only the verified small variations.
-  local body=('\n'..cfg:gsub(';[^\r\n]*','')):match('\n[ \t]*macro[ \t]+drawMcp[ \t]+scale[ \t]*[\r\n]+([%s%S]-)\n[ \t]*endmacro%f[%W]')
-  if body then
-    local script=' '..body:gsub('\\%s*[\r\n]',' '):gsub('%s+',' ')..' '
+  local script=mcp_script(cfg)
+  if script then
     local function has(s) return script:find(' '..s..' ',1,true) end
     local recarm_y=tonumber(script:match(' set mcp%.recarm %+ %* scale %[0 (%-?%d+) 36 24%] %?narrowMode{0} '))
     local label_h=tonumber(script:match(' %[0 0 %-14 27%] %[0 0 0 (%d+)%] %[0 bot_sec mcp%.size{0}%] '))
@@ -137,6 +211,7 @@ local function layout_of(cfg)
       return 'generic',nil,nil,nil,nil,true
     end
   end
+  if csixsx_of(cfg) then return 'csixsx' end
   if not cfg:find('macro%s+drawMcp') and cfg:find('custom_mcp_paneltopleft',1,true) and frxst_of(cfg) then return 'frxst' end
   if cfg:find('macro%s+drawDefaultMCP%s') and mydaw_of(cfg) then return 'mydaw' end
   if not cfg:find('macro%s+drawMcp') and cfg:find('set mcp_narrow',1,true) then
@@ -160,9 +235,10 @@ local function finish(t, cfg, inis)
   end
   for key,fallback in pairs(M.COLORS) do colors[key] = named(key) or fallback end
   -- Track panel colour under the mixer artwork (selected, unselected); optional, no built-in default.
-  colors.col_seltrack, colors.col_seltrack2 = named('col_seltrack'), named('col_seltrack2')
+  colors.col_seltrack, colors.col_seltrack2, colors.col_mixerbg = named('col_seltrack'), named('col_seltrack2'), named('col_mixerbg')
   t.row_height = math.max(12,math.min(26,row)); t.rtconfig = cfg; t.colors = colors
   t.layout,t.stock6,t.recarm_y,t.label_h,t.compact6,t.full_art,t.gray80 = layout_of(cfg)
+  if t.full_art or t.layout=='csixsx' then t.csix = csix_colors(cfg) end
   if t.layout=='frxst' then t.send_row_height = math.max(12,math.min(30,tonumber(cfg:match('set%s+mcp%.sendlist%.font%s+%[%s*%d+%s+(%d+)')) or 27)) end
   if t.layout=='mydaw' then
     t.row_height,t.send_row_height = 15,18 -- written as scaled variables in its script
@@ -170,6 +246,13 @@ local function finish(t, cfg, inis)
     t.font,t.fonts = 'Arial',{main={15,true},list={12.5},sends={15,true},header={15}}
     -- Most of its mixer art exists only at one size; REAPER shows that pixel for pixel at any display scale.
     t.unscaled_base = true
+  end
+  if t.layout=='csixsx' then
+    -- Its 200% fonts: Roboto 10 pt for labels and input, 15 pt for the name; Roboto Condensed regular 12 pt for the volume
+    -- readout and track number (gfx sizes that render about as large as the mixer's). The inserts and sends use
+    -- mcp.fxlist/sendlist.font 11 = user_font10, Roboto 400 at 20 px (measured in the native mixer; gfx 12.5 renders it); the
+    -- pinned 'Master send' row takes the 'list' role, so both roles stay identical.
+    t.font,t.fonts = 'Roboto',{main={10.3},list={12.5},header={15,false,'Roboto Condensed'},bold={12.4,false,'Roboto Condensed'},sends={12.5}} -- name: font 14 = user_font13, Roboto Condensed 24 px
   end
   if t.gray80 and t.gray80.send_row then t.send_row_height = math.max(12,math.min(26,t.gray80.send_row)) end
   -- Stock mixer faces are declared in the theme's serialized LOGFONT. Only the first

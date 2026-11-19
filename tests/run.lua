@@ -366,6 +366,48 @@ test('experimental artwork menu can preview and restore generic artwork without 
   csix:stop();eq(#h.writes,0)
 end)
 
+test('CSIX strips read their edition\'s text colours and match the mixer at the record tab, readout and footer', function()
+  local fake=dofile('tests/synthetic.lua')
+  local App,Theme=dofile('inspector/app.lua'),dofile('inspector/theme.lua')
+  local function open(file)
+    local h,g=fake.host(),fake.gfx();h.theme_file=h.GetResourcePath()..'/ColorThemes/'..file
+    local app=App.new(h,g);assert(app:start());app:frame();return app,h,g
+  end
+  local function rgb(c) return c and table.concat(c,',') end
+  local function shown(g,r,gr,b) -- text drawn in this colour
+    local cur,n;n=0
+    for _,c in ipairs(g.calls) do
+      if c[1]=='set' then cur=c
+      elseif c[1]=='drawstr' and cur and math.abs(cur[2]-r/255)<1e-6 and math.abs(cur[3]-gr/255)<1e-6 and math.abs(cur[4]-b/255)<1e-6 then n=n+1 end
+    end
+    return n
+  end
+  local app,h,g=open('CSIX-BASIC.ReaperThemeZip')
+  local c=app.view.theme.csix
+  eq(rgb(c.readout),'100,200,255');eq(rgb(c.vol_sel),'255,255,255');eq(rgb(c.vol),'210,210,210')
+  eq(rgb(c.idx_sel),'38,38,38');eq(rgb(c.idx),'200,200,200');eq(rgb(c.name_sel),'235,255,255')
+  assert(shown(g,100,200,255)>0,'peak readout uses the edition colour');assert(shown(g,235,255,255)>0,'selected name colour')
+  assert(app.view.bitmaps.cache.mcp_vol_label,'the readout box art is drawn');assert(app.view.bitmaps.cache.mcp_namebg)
+  -- The record tab's art ends 2 pt inside its 36 pt cell, which the mixer's 76 pt strip clips: the cell reaches 2 pt past the edge.
+  local flat,fh,fg=open('Flat Madness CI 5.1.0 Dark.ReaperThemeZip')
+  eq(app.view.hits.I_RECARM.x,flat.view.hits.I_RECARM.x+2);eq(app.view.hits.I_RECARM.w,36)
+  -- Another edition's own colours come from its script, not from BASIC's.
+  local env={cache=h.cache..'/csix-colors',mkdir=function(p) os.execute('mkdir -p "'..p..'"') end}
+  local function variant(from,to)
+    local changed,n=app.view.theme.rtconfig:gsub(from,to);assert(n>0,from);os.execute('mkdir -p "'..env.cache..'"')
+    local f=assert(io.open(env.cache..'/rtconfig.txt','w'));f:write(changed);f:close();return assert(Theme.resolve(env.cache,env))
+  end
+  local t=variant('%[100 200 255 255 255 180 255 255%]','[0 150 255 255 255 180 255 255]')
+  eq(rgb(t.csix.readout),'0,150,255');assert(t.full_art);eq(t.csix.idx_sel[1],38)
+  t=variant('%?track_selected %[38 38 38%] %[200 200 200%]','?track_selected [255 150 0] [38 38 38]')
+  eq(rgb(t.csix.idx_sel),'255,150,0');eq(rgb(t.csix.idx),'38,38,38')
+  -- CSIX-AE-Narrow/SX differ in the mixer geometry (the pan section is 35 pt, the polarity button moves, the fader sits over the
+  -- meter): a one-value change in that script must not borrow BASIC's arrangement.
+  t=variant('%[0 0 0 36%] %[0 0 0 45%]','[0 0 0 35] [0 0 0 45]')
+  eq(t.layout,'generic');assert(not t.full_art);eq(t.csix,nil)
+  app:stop();flat:stop()
+end)
+
 test('double-clicking a track name renames that strip; the master has no rename', function()
   local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
   h.GetOS=function() return 'macOS-arm64' end
@@ -966,6 +1008,95 @@ test('Mydaw: top rows hang from the panel top, the button column and name from t
   assert(n>0);os.execute('mkdir -p "'..env.cache..'/changed"')
   local f=assert(io.open(env.cache..'/changed/rtconfig.txt','w'));f:write(changed);f:close()
   local other=assert(Theme.resolve(env.cache..'/changed',env));eq(other.layout,'generic');eq(other.send_row_height,nil)
+end)
+
+test('CSIX AE-Narrow / SX: one layout for all six editions, bottom-up from the panel, the meter taking extra width', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  h.GetOS=function() return 'macOS-arm64' end
+  local Theme=dofile('inspector/theme.lua')
+  local home=os.getenv('HOME')..'/Library/Application Support/REAPER/ColorThemes/'
+  local env={cache=h.cache..'/csixsx',mkdir=function(p) os.execute('mkdir -p "'..p..'"') end}
+  for _,name in ipairs({'AE-Narrow-dark','AE-Narrow-light','AE-Narrow-slate','SX-dark','SX-light','SX-loom'}) do
+    local t=assert(Theme.resolve(home..'CSIX-'..name..'.ReaperThemeZip',env),name);eq(t.layout,'csixsx');assert(t.csix and t.csix.vol,name)
+  end
+  eq(Theme.resolve(home..'CSIX-BASIC.ReaperThemeZip',env).layout,'generic')       -- a different script: not this layout
+  local theme=assert(Theme.resolve(home..'CSIX-AE-Narrow-dark.ReaperThemeZip',env))
+  local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),theme,{output_strip=false})
+  local function at(w,hgt) g.ext_retina=2;g.w=w*2;g.h=hgt*2;v:frame() end
+  local function box(hit,x,y,w,hh) assert(math.abs(hit.x-x)<.01,hit.id..' x '..hit.x);eq(hit.y,y);assert(math.abs(hit.w-w)<.01,hit.id..' w '..hit.w);eq(hit.h,hh) end
+  -- The 84 pt strip of the native screenshot, 313 pt panel (measured: the panel's rows are 2 px per point).
+  at(84,563);eq(#v.bitmaps.missing,0);eq(v.layout.L,313)
+  -- Rack text: mcp.fxlist/sendlist.font 11 is user_font10 (Roboto, 400, 20 px), not the condensed bold 16 px sibling; the pinned
+  -- 'Master send' row draws with the 'list' slot, so slots 2 (inserts, Master send) and 5 (sends) must be the same font.
+  local function slot(i) for n=#g.calls,1,-1 do local c=g.calls[n];if c[1]=='setfont' and c[2]==i and c[3] then return c[3]..' '..c[4]..' '..c[5] end end end
+  eq(slot(2),'Roboto 25 0');eq(slot(5),slot(2));eq(slot(4),'Roboto Condensed 25 0')
+  local k,T=v.hits,250
+  box(k.FX,5,T+8,42.33,20);box(k.I_FXEN,47.33,T+8,31.67,20);box(k.D_PAN,30,T+35,26,26)
+  box(k.I_RECINPUT,6,T+77,73,16);box(k.INFX,6,T+93,30,12);box(k.I_RECMODE,6,T+105,29,16);box(k.B_PHASE,35,T+105,16,17)
+  box(k.meter,6,T+157,29,105);box(k.D_VOL,38,T+155,21,107);box(k.I_RECARM,52,T+117,32,22);box(k.I_RECMON,61,T+139,21,20)
+  box(k.B_MUTE,60,T+161,21,20);box(k.I_SOLO,60,T+184,21,20);box(k.IO,59,T+213,23,22);box(k.name,0,T+266,84,27)
+  eq(k.output.h,16);assert(k.output.y+16<=T)
+  -- Pan and width knobs are a cap plus a value-indexed frame over it (no generated pointer): hard left, stereo pan, centre, hard right.
+  local pointers=0;local pointer=v.pointer;v.pointer=function() pointers=pointers+1 end
+  local function art(pattern) -- first blit order and device-pixel extent of one image
+    local o,x1,y1,x2,y2
+    for i,b in ipairs(g.blits) do if g.images[b[1]]:match(pattern) then
+      o=o or i;x1,y1=math.min(x1 or b[8],b[8]),math.min(y1 or b[9],b[9]);x2,y2=math.max(x2 or 0,b[8]+b[10]),math.max(y2 or 0,b[9]+b[11])
+    end end
+    return o,x1,y1,x2,y2
+  end
+  local function frame_of(pattern) for _,b in ipairs(g.blits) do if g.images[b[1]]:match(pattern) then return (b[5]-v.bitmaps.cache[pattern:match('(mcp_%a+_knob_stack)')].y)/b[6] end end end
+  local function knob_check(id,cap,stack,frame,hit)
+    local co,cx1,cy1,cx2,cy2=art(cap);local so,sx1,sy1,sx2,sy2=art(stack)
+    assert(co and so and co<so,id..': cap first, frame over it')
+    eq(frame_of(stack),frame)
+    eq(sx1,hit.x*2);eq(sy1,hit.y*2);eq(sx2-sx1,52);eq(sy2-sy1,52)            -- the frame fills the 26 pt hit box
+    assert(cx1<=sx1 and cy1<=sy1 and cx2>=sx2 and cy2>=sy2,id..': cap covers its frame')
+    assert(math.abs((cx1+cx2)-(sx1+sx2))<=2 and math.abs((cy1+cy2)-(sy1+sy2))<=2,id..': cap centred on its frame')
+  end
+  h.a.values.D_PAN=-1;h.a.values.I_PANMODE=3;g.blits={};at(84,563);k=v.hits
+  knob_check('hard left','_mcp_pan_knob_large%.png$','_mcp_pan_knob_stack%.png$',0,k.D_PAN)
+  eq(art('mcp_width_knob'),nil);eq(art('mcp_wid_knob_stack'),nil)
+  h.a.values.D_PAN=1;g.blits={};at(84,563);knob_check('hard right','_mcp_pan_knob_large%.png$','_mcp_pan_knob_stack%.png$',60,v.hits.D_PAN)
+  h.a.values.D_PAN=0;g.blits={};at(84,563);knob_check('centre','_mcp_pan_knob_large%.png$','_mcp_pan_knob_stack%.png$',30,v.hits.D_PAN)
+  h.a.values.I_PANMODE=5;h.a.values.D_PAN=-1;h.a.values.D_WIDTH=.85;g.blits={};at(84,563);k=v.hits
+  box(k.D_PAN,14,T+35,26,26);box(k.D_WIDTH,47,T+35,26,26)                  -- 10+d/2 and 43+d/2 (d=8): two 26 pt knobs, pan left of width
+  knob_check('stereo pan','_mcp_pan_knob_large%.png$','_mcp_pan_knob_stack%.png$',0,k.D_PAN)
+  knob_check('stereo width','_mcp_width_knob_large%.png$','_mcp_wid_knob_stack%.png$',28,k.D_WIDTH) -- +85% of the -100..+100% frames
+  h.a.values.I_PANMODE=6;h.a.values.D_DUALPANL=-1;h.a.values.D_DUALPANR=.4;g.blits={};at(84,563)
+  eq(art('mcp_pan_knob'),nil);eq(art('mcp_wid_knob'),nil);eq(pointers,0)    -- dual pan is two bars, no knob art
+  h.a.values.I_PANMODE=nil;h.a.values.D_PAN=0;h.a.values.D_WIDTH=nil;h.a.values.D_DUALPANL=nil;h.a.values.D_DUALPANR=nil
+  v.pointer=pointer;g.blits={};at(84,563);k=v.hits
+  for _,w in ipairs({78,84,86,96,120}) do
+    for _,mode in ipairs({3,5,6}) do
+      h.a.values.I_PANMODE=mode;at(w,700);k=v.hits
+      local ids={'FX','I_FXEN','I_RECINPUT','INFX','I_RECMODE','B_PHASE','I_RECMON','I_RECARM','IO','B_MUTE','I_SOLO','name','D_VOL'}
+      eq(v.layout.meter,true);ids[#ids+1]='meter'
+      for _,id in ipairs(mode==6 and {'D_DUALPANL','D_DUALPANR'} or mode==5 and {'D_PAN','D_WIDTH'} or {'D_PAN'}) do ids[#ids+1]=id end
+      local order={}
+      for _,id in ipairs(ids) do order[#order+1]=assert(k[id],id..' at '..w) end
+      for i,a in ipairs(order) do
+        assert(a.x>=0 and a.x+a.w<=w+.01 and a.y+a.h<=700.01,a.id..' leaves the strip at '..w)
+        for j=i+1,#order do local b=order[j]
+          assert(a.x+a.w<=b.x+.01 or b.x+b.w<=a.x+.01 or a.y+a.h<=b.y+.01 or b.y+b.h<=a.y+.01,a.id..' overlaps '..b.id..' at '..w)
+        end
+      end
+    end
+  end
+  h.a.values.I_PANMODE=3
+  -- The meter takes the width the script's nchan_offs gives it; the fader and buttons keep their distance to it.
+  at(96,563);eq(v.hits.meter.w,41);eq(v.hits.D_VOL.x,v.hits.meter.x+v.hits.meter.w+3)
+  -- Master as the output strip: no input, arm or monitor rows, a mono/stereo switch in their place.
+  v.options.output_strip=true;at(172,563);k=v.hits
+  assert(k['out:I_SOLO'] and k['out:IO'] and k['out:FX'] and k['out:MONO'] and k['out:D_PAN']);eq(k['out:I_RECINPUT'],nil);eq(k['out:I_RECMON'],nil);eq(k['out:I_RECARM'],nil);eq(k['out:name'],nil)
+  local before=#h.writes
+  local hit=v.hits.I_SOLO;g.mouse_x=(hit.x+5)*2;g.mouse_y=(hit.y+5)*2;g.mouse_cap=1;v:frame();g.mouse_cap=0;v:frame()
+  eq(#h.writes,before+1);eq(h.writes[#h.writes][2],'I_SOLO')
+  -- Recognised by its script: one changed rectangle falls back to the generic strip.
+  local changed,n=theme.rtconfig:gsub('%[6 2 65 16%]','[6 2 64 16]')
+  assert(n>0);os.execute('mkdir -p "'..env.cache..'/changed"')
+  local f=assert(io.open(env.cache..'/changed/rtconfig.txt','w'));f:write(changed);f:close()
+  eq(assert(Theme.resolve(env.cache..'/changed',env)).layout,'generic')
 end)
 
 test('Theme Adjuster values are read live only while following REAPER\'s theme', function()
