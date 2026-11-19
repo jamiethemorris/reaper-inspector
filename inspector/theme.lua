@@ -133,6 +133,37 @@ local function csixsx_of(cfg)
   end
   return true
 end
+-- Flat Madness 5 (CI and SI, Bright and Dark): one mixer macro, drawMCP, in three strip widths (80, 94 and 114 pt).
+-- Rows hang from the panel top, the lower rows from its bottom. The editions' mixer scripts are identical; their
+-- Theme Adjuster defaults and art differ. Any changed rectangle falls back to the generic strip.
+local function flatmadness_of(cfg)
+  local script=' '..cfg:gsub(';[^\r\n]*',''):gsub('\\%s*[\r\n]',' '):gsub('%s+',' ')..' '
+  for _,s in ipairs({
+    'macro drawMCP scale fontsize hugestate meterbridge',
+    'tracknch>3 [94 folderincrease 0 mcp_minheight 92 80] hugestate=1 [114 folderincrease 0 mcp_minheight 112 100] [80 folderincrease 0 mcp_minheight 78 66]',
+    'set mspwidBP * scale [80 94 114]', 'set mcp.extmixer.mode [0]',
+    'set mcp.recarm * scale folderstate=1 recarm_adjust [8 8 20 20]', 'set mcp.recmode * scale folderstate=1 recmode_adjust [26 8 20 20]',
+    'set mcp.recmon * scale folderstate=1 recmon_adjust [50 8 22 20]', 'set mcp.recinput * scale folderstate=1 + recinput_adjust [0 0 0 0] [8 54 64 20]',
+    'set mcp.env * scale [8 31 64 20]', 'set mcp.fx * scale [7 102 22 20]', 'set mcp.fxbyp * scale [29 102 18 20]', 'set mcp.fxin * scale [46 102 27 20]',
+    'set mcp.pan * scale trackpanmode<4 [7 124 20 20] [7 124 68 10]', 'set mcp.pan.label * scale trackpanmode>3 [0] [29 124 44 20]',
+    'set mixerwidth [6 136 68 10]', 'set labelpoints * scale [78 18]', 'set mcp.label [0 labelpoints{0} mcp.size{0} labelpoints{1}]',
+    'set mcp_column_anchor w=mspwidBP{2} [86 102] w=mspwidBP{1} [66 102] [52 102]',
+    'set mcp_meter_main h<mcp_flipBP{0} [6 156 30 30 0 0 0 0] w=mspwidBP{2} [5 158 55 122 0 0 0 1] w=mspwidBP{1} [5 158 35 122 0 0 0 1] [5 158 23 122 0 0 0 1]',
+    'set mcp.meter * scale + mcp_meter_main [0 10 0 -10]',
+    'set mcpvol_main w=mspwidBP{2} [66 168 19 112 0 0 0 1] w=mspwidBP{1} [46 168 19 112 0 0 0 1] [32 168 19 112 0 0 0 1]',
+    'set mcpvol_label_main w=mspwidBP{2} [48 278 32 22 0 1 0 1] w=mspwidBP{1} [28 278 32 22 0 1 0 1] [14 278 32 22 0 1 0 1]',
+    'set mcp.mute * scale h<mcp_flipBP{0} + mcp_column_anchor [-14 64 18 20] + mcp_column_anchor [3 64 20 18]',
+    'set mcp.solo * scale h<mcp_flipBP{0} + mcp_column_anchor [4 64 18 20] + mcp_column_anchor [3 82 20 18]',
+    'set mcp.phase * scale h<mcpphaseBP{0} [0] + mcp_column_anchor [5 150 17 17 0 1 0 1]',
+    'set mcp.io * scale h<mcpphaseBP{1} [0] + mcp_column_anchor [3 172 20 22 0 1 0 1]',
+    'set mcp.trackidx * scale [0 300 mcp_width{0} 20 0 1 0 1]',
+    'set mcp.custom.trackcolor * scale + [0 0 -8 0] mcp_solid_color=3 [3 152 mcp.size{0} 8] [3 148 mcp.size{0} 9]',
+    'set master.mcp.mono * scale [95 220 20 50 0 1 0 1]', 'set master.mcp.mute + master_mcp_column_anchor * scale [1 22 20 18]',
+  }) do
+    if not script:find(' '..s..' ',1,true) then return false end
+  end
+  return true
+end
 -- The 6-style mixer macro, comments dropped and whitespace collapsed, for exact `has(...)` matching.
 local function mcp_script(cfg)
   local body=('\n'..cfg:gsub(';[^\r\n]*','')):match('\n[ \t]*macro[ \t]+drawMcp[ \t]+scale[ \t]*[\r\n]+([%s%S]-)\n[ \t]*endmacro%f[%W]')
@@ -214,6 +245,7 @@ local function layout_of(cfg)
   if csixsx_of(cfg) then return 'csixsx' end
   if not cfg:find('macro%s+drawMcp') and cfg:find('custom_mcp_paneltopleft',1,true) and frxst_of(cfg) then return 'frxst' end
   if cfg:find('macro%s+drawDefaultMCP%s') and mydaw_of(cfg) then return 'mydaw' end
+  if cfg:find('macro%s+drawMCP%s') and flatmadness_of(cfg) then return 'flatmadness' end
   if not cfg:find('macro%s+drawMcp') and cfg:find('set mcp_narrow',1,true) then
     local gray=gray80_of(cfg)
     if gray then return 'gray80',nil,nil,nil,nil,nil,gray end
@@ -247,6 +279,13 @@ local function finish(t, cfg, inis)
     -- Most of its mixer art exists only at one size; REAPER shows that pixel for pixel at any display scale.
     t.unscaled_base = true
   end
+  if t.layout=='flatmadness' then
+    -- Its lists are 16 pt rows (32 px at 200%); every mixer label is Helvetica Neue bold: user_font6 (24 px) for lists, input, pan
+    -- and volume text, user_font2 (28 px) for the name and track number (gfx sizes that render as large as the mixer's).
+    t.row_height,t.send_row_height = 16,16
+    t.bright = cfg:find('\n%s*set%s+bright%s+1') ~= nil -- the input field's text is lighter in the Bright editions
+    t.font,t.fonts = 'Helvetica Neue',{main={12.2,true},list={12.2,true},sends={12.2,true},header={14.7,true},bold={14.7,true}}
+  end
   if t.layout=='csixsx' then
     -- Its 200% fonts: Roboto 10 pt for labels and input, 15 pt for the name; Roboto Condensed regular 12 pt for the volume
     -- readout and track number (gfx sizes that render about as large as the mixer's). The inserts and sends use
@@ -268,6 +307,7 @@ local function finish(t, cfg, inis)
   end
   -- The theme's own defaults for the values its layout script uses (colour variants differ only in these).
   local source = '\n'..cfg
+  if t.layout=='flatmadness' then source = (source:gsub('\n[ \t]+define_parameter','\ndefine_parameter')) end -- its definitions are indented
   t.version = tonumber(source:match('\nset theme_version%s+(%d+)')) or 1
   local function direct_param(name)
     if t.live and t.live[name] ~= nil then return t.live[name] end

@@ -205,13 +205,13 @@ function M:rise(name,x,top,y,h,w,scale)
   return true
 end
 -- Colour of an opaque panel image: its centre, or the centre of its left overhang.
-function M:tone(name,left)
+function M:tone(name,left,px,py) -- `px,py`: a chosen pixel, counted from the guide-free interior
   local a=self:get(name,true)
   if not a or (left and a.over[1]<4) then return nil end
-  local key=left and 'tone_left' or 'tone'
+  local key=px and 'tone_'..px..'_'..py or left and 'tone_left' or 'tone'
   if not a[key] then
     local g=self.g;local dest,gx,gy=g.dest,g.x,g.y
-    g.dest,g.x,g.y=a.slot,left and a.x+a.over[1]//2 or a.x+a.w//2,a.y+a.h//2
+    g.dest,g.x,g.y=a.slot,px and a.x+px or left and a.x+a.over[1]//2 or a.x+a.w//2,px and a.y+py or a.y+a.h//2
     local cr,cg,cb=g.getpixel()
     g.dest,g.x,g.y=dest,gx,gy
     a[key]={cr*255,cg*255,cb*255}

@@ -5,6 +5,20 @@ local function eq(a,b) assert(a == b, tostring(a)..' ~= '..tostring(b)) end
 local root = './'
 -- The installed theme the Reapertips layout was built against; these tests read its real artwork.
 REAPERTIPS = os.getenv('HOME')..'/Library/Application Support/REAPER/ColorThemes/Reapertips Theme_Custom2.ReaperTheme'
+-- The tests' stand-in for "any theme without a layout of its own": Flat Madness unpacked with one rectangle of its mixer script
+-- changed, so it is read as generic (own artwork, Inspector arrangement).
+local function flat_generic(h)
+  local dir=h.cache..'/flat-generic'
+  local f=io.open(dir..'/rtconfig.txt','rb')
+  if not f then
+    local zip=h.GetResourcePath()..'/ColorThemes/Flat Madness CI 5.1.0 Dark.ReaperThemeZip'
+    assert(os.execute('mkdir -p "'..dir..'-x" "'..dir..'" && unzip -q -o "'..zip..'" "FM*" -d "'..dir..'-x" && cp -R "'..dir..'-x"/FM*/. "'..dir..'/"'))
+    f=assert(io.open(dir..'/rtconfig.txt','rb'));local cfg=f:read('a');f:close()
+    local changed,n=cfg:gsub('%[7 102 22 20%]','[7 102 22 21]');assert(n==1)
+    f=assert(io.open(dir..'/rtconfig.txt','wb'));f:write(changed)
+  end
+  f:close();return dir
+end
 
 test('theme resolves installed ui_img and reads real PNG dimensions', function()
   local Theme = dofile(root..'inspector/theme.lua')
@@ -334,7 +348,7 @@ end)
 test('experimental artwork menu can preview and restore generic artwork without changing layout', function()
   local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
   local App=dofile('inspector/app.lua')
-  h.theme_file=h.GetResourcePath()..'/ColorThemes/Flat Madness CI 5.1.0 Dark.ReaperThemeZip'
+  h.theme_file=flat_generic(h)
   local app=App.new(h,g);assert(app:start());app:frame()
   local v=app.view;eq(v.theme.layout,'generic')
   assert(not v.bitmaps.cache.mcp_volthumb)
@@ -370,7 +384,7 @@ test('CSIX strips read their edition\'s text colours and match the mixer at the 
   local fake=dofile('tests/synthetic.lua')
   local App,Theme=dofile('inspector/app.lua'),dofile('inspector/theme.lua')
   local function open(file)
-    local h,g=fake.host(),fake.gfx();h.theme_file=h.GetResourcePath()..'/ColorThemes/'..file
+    local h,g=fake.host(),fake.gfx();h.theme_file=file:find('^/') and file or h.GetResourcePath()..'/ColorThemes/'..file
     local app=App.new(h,g);assert(app:start());app:frame();return app,h,g
   end
   local function rgb(c) return c and table.concat(c,',') end
@@ -389,7 +403,7 @@ test('CSIX strips read their edition\'s text colours and match the mixer at the 
   assert(shown(g,100,200,255)>0,'peak readout uses the edition colour');assert(shown(g,235,255,255)>0,'selected name colour')
   assert(app.view.bitmaps.cache.mcp_vol_label,'the readout box art is drawn');assert(app.view.bitmaps.cache.mcp_namebg)
   -- The record tab's art ends 2 pt inside its 36 pt cell, which the mixer's 76 pt strip clips: the cell reaches 2 pt past the edge.
-  local flat,fh,fg=open('Flat Madness CI 5.1.0 Dark.ReaperThemeZip')
+  local flat,fh,fg=open(flat_generic(fake.host()))
   eq(app.view.hits.I_RECARM.x,flat.view.hits.I_RECARM.x+2);eq(app.view.hits.I_RECARM.w,36)
   -- Another edition's own colours come from its script, not from BASIC's.
   local env={cache=h.cache..'/csix-colors',mkdir=function(p) os.execute('mkdir -p "'..p..'"') end}
@@ -482,14 +496,14 @@ test('generic strip borrows only compatible mute and solo art and preserves clic
   h.GetOS=function() return 'macOS-arm64' end
   local Theme=dofile('inspector/theme.lua')
   local env={cache=h.cache..'/generic-art',mkdir=h.RecursiveCreateDirectory}
-  local theme=assert(Theme.resolve(h.GetResourcePath()..'/ColorThemes/Flat Madness CI 5.1.0 Dark.ReaperThemeZip',env))
+  local theme=assert(Theme.resolve(flat_generic(h),env))
   eq(theme.layout,'generic')
   -- The synthetic gfx does not decode PNGs. Model the measured pink perimeter
   -- of this theme's 200% mute/solo sheets; the offline preview uses the real pixels.
   local getpixel=g.getpixel
   g.getpixel=function()
     local p=g.images[g.dest] or ''
-    if (p:find('200_track_mute_',1,true) or p:find('200_track_solo_',1,true)) and
+    if (p:find('/200/track_mute_',1,true) or p:find('/200/track_solo_',1,true)) and
       (g.x==0 or g.y==0 or g.x==121 or g.y==41) then return 1,0,1 end
     return getpixel()
   end
@@ -1094,6 +1108,83 @@ test('CSIX AE-Narrow / SX: one layout for all six editions, bottom-up from the p
   eq(#h.writes,before+1);eq(h.writes[#h.writes][2],'I_SOLO')
   -- Recognised by its script: one changed rectangle falls back to the generic strip.
   local changed,n=theme.rtconfig:gsub('%[6 2 65 16%]','[6 2 64 16]')
+  assert(n>0);os.execute('mkdir -p "'..env.cache..'/changed"')
+  local f=assert(io.open(env.cache..'/changed/rtconfig.txt','w'));f:write(changed);f:close()
+  eq(assert(Theme.resolve(env.cache..'/changed',env)).layout,'generic')
+end)
+
+test('Flat Madness: the macro\'s rows from the panel top and bottom, three strip widths, the meter taking extra width', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  h.GetOS=function() return 'macOS-arm64' end
+  local Theme=dofile('inspector/theme.lua')
+  local home=os.getenv('HOME')..'/Library/Application Support/REAPER/ColorThemes/'
+  local env={cache=h.cache..'/flatmadness',mkdir=function(p) os.execute('mkdir -p "'..p..'"') end}
+  -- CI and SI, Bright and Dark share one mixer script; each edition's own adjuster defaults come with it.
+  for _,name in ipairs({'CI 5.1.0 Dark','CI 5.1.0 Bright','SI 5.1.0 Dark','SI 5.1.0 Bright'}) do
+    local t=assert(Theme.resolve(home..'Flat Madness '..name..'.ReaperThemeZip',env),name);eq(t.layout,'flatmadness')
+    eq(t.bright,name:find('Bright')~=nil);eq(t.param('saturncmcp',0),t.bright and 120 or 80);eq(t.row_height,16)
+  end
+  local theme=assert(Theme.resolve(home..'Flat Madness CI 5.1.0 Dark.ReaperThemeZip',env))
+  local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),theme,{output_strip=false})
+  local function at(w,hgt) g.ext_retina=2;g.w=w*2;g.h=hgt*2;v:frame() end
+  local function box(hit,x,y,w,hh) assert(math.abs(hit.x-x)<.01,hit.id..' x '..hit.x);eq(hit.y,y);assert(math.abs(hit.w-w)<.01,hit.id..' w '..hit.w);eq(hit.h,hh) end
+  local function blit(pattern) -- the pieces of one image: first blit's slot, extent in device pixels
+    local x1,y1,x2,y2,last
+    for _,b in ipairs(g.blits) do if g.images[b[1]]:match(pattern) then
+      x1,y1=math.min(x1 or b[8],b[8]),math.min(y1 or b[9],b[9]);x2,y2=math.max(x2 or 0,b[8]+b[10]),math.max(y2 or 0,b[9]+b[11]);last=b
+    end end
+    return x1,y1,x2,y2,last
+  end
+  -- The strip of the native screenshot: 94 pt wide, 314 pt panel (measured; the script's 320 pt frame hangs from the bottom).
+  at(94,564);eq(#v.bitmaps.missing,0);eq(v.layout.L,314)
+  local k,T=v.hits,250;local function B(y) return T+314-320+y end
+  box(k.I_RECARM,7,T+8,18,20);box(k.I_RECMODE,25,T+8,20,20);box(k.I_RECMON,49,T+8,22,20);box(k.I_AUTOMODE,7,T+31,64,20)
+  box(k.I_RECINPUT,7,T+54,64,20);box(k.name,0,T+78,94,18);box(k.FX,6,T+102,22,20);box(k.I_FXEN,28,T+102,18,20);box(k.INFX,46,T+102,26,20)
+  box(k.D_PAN,6,T+124,20,20);box(k.meter,4,T+168,35,106);box(k.D_VOL,45,T+168,19,106)
+  box(k.B_MUTE,68,T+166,20,18);box(k.I_SOLO,68,T+184,20,18);box(k.B_PHASE,70,B(252),17,17);box(k.IO,68,B(274),20,22)
+  eq(k.fxadd2.y-k.fx1.y,16);assert(k.output.y+16<=T)
+  -- Artwork as the mixer stacks it: the selected card art over the panel, 1 pt left of the strip's edge; a 13 pt slot in each 16 pt row;
+  -- the fader's tall image from its cap's top down to the groove's end.
+  local x1,y1,x2,y2=blit('mcp_adjust_bgsel%.png$');eq(x1,-2);eq(y1,T*2);eq(x2,186);eq(y2,(T+314)*2)
+  x1,y1,x2,y2=blit('mcp_fxlist_empty%.png$');eq(x1,-3);eq(y1,32);eq(x2-x1,186)  -- the second row: the first holds the plug-in
+  local _,_,_,_,cap=blit('mcp_volthumb%.png$');eq(cap[10],38);eq(cap[9]+cap[11],(T+168+106)*2)
+  assert(blit('mcp_idxbg_sel%.png$'),'footer art');assert(blit('gloss%.png$'),'gloss over the button groups')
+  -- Three widths of the script (80, 94, 114 pt): the columns keep their places and the meter takes what lies beyond.
+  at(96,564);eq(v.hits.meter.w,37);eq(v.hits.D_VOL.x,47);eq(v.hits.B_MUTE.x,70)
+  at(86,564);eq(v.hits.meter.w,29);eq(v.hits.D_VOL.x,37);eq(v.hits.B_MUTE.x,60)
+  at(114,564);eq(v.hits.meter.w,55);eq(v.hits.D_VOL.x,65);eq(v.hits.B_MUTE.x,88)
+  at(140,564);eq(v.hits.meter.w,81);eq(v.hits.B_MUTE.x,114)
+  -- Pan modes, widths and heights: nothing overlaps or leaves the strip, in one strip or two.
+  for _,hgt in ipairs({409,454,600}) do
+    for _,w in ipairs({80,86,94,96,114}) do
+      for _,mode in ipairs({3,5,6}) do
+        h.a.values.I_PANMODE=mode;at(w,hgt);k=v.hits
+        local ids={'FX','I_FXEN','INFX','I_RECARM','I_RECMODE','I_RECMON','I_AUTOMODE','I_RECINPUT','name','B_MUTE','I_SOLO','B_PHASE','IO','D_VOL','meter'}
+        for _,id in ipairs(mode==6 and {'D_DUALPANL','D_DUALPANR'} or mode==5 and {'D_PAN','D_WIDTH'} or {'D_PAN'}) do ids[#ids+1]=id end
+        if mode==6 then eq(k.D_PAN,nil) end
+        local order={}
+        for _,id in ipairs(ids) do order[#order+1]=assert(k[id],id..' at '..w) end
+        for i,a in ipairs(order) do
+          assert(a.x>=0 and a.x+a.w<=w+.01 and a.y>=0 and a.y+a.h<=hgt+.01,a.id..' leaves the strip at '..w..'x'..hgt)
+          for j=i+1,#order do local b=order[j]
+            assert(a.x+a.w<=b.x+.01 or b.x+b.w<=a.x+.01 or a.y+a.h<=b.y+.01 or b.y+b.h<=a.y+.01,a.id..' overlaps '..b.id..' at '..w..'x'..hgt)
+          end
+        end
+        assert(k.D_VOL.x>=k.meter.x+k.meter.w and k.IO.y+k.IO.h<=hgt)
+      end
+    end
+  end
+  h.a.values.I_PANMODE=3
+  -- Master as the output strip: a track-style strip without the input and arm rows, a tall mono switch above routing, an unselected card.
+  v.options.output_strip=true;g.blits={};at(188,564);k=v.hits
+  assert(k['out:I_SOLO'] and k['out:IO'] and k['out:FX'] and k['out:D_PAN'] and k['out:I_AUTOMODE'])
+  for _,id in ipairs({'I_RECARM','I_RECMODE','I_RECMON','I_RECINPUT','INFX','B_PHASE','name'}) do eq(k['out:'..id],nil) end
+  box(k['out:MONO'],94+68,B(220),20,50);box(k['out:IO'],94+68,B(274),20,22);assert(blit('mcp_adjust_bg%.png$'),'the unselected master draws the plain card')
+  local before=#h.writes
+  local hit=v.hits.I_SOLO;g.mouse_x=(hit.x+5)*2;g.mouse_y=(hit.y+5)*2;g.mouse_cap=1;v:frame();g.mouse_cap=0;v:frame()
+  eq(#h.writes,before+1);eq(h.writes[#h.writes][2],'I_SOLO')
+  -- Recognised by its script: one changed rectangle falls back to the generic strip.
+  local changed,n=theme.rtconfig:gsub('%[3 172 20 22 0 1 0 1%]','[3 172 20 23 0 1 0 1]')
   assert(n>0);os.execute('mkdir -p "'..env.cache..'/changed"')
   local f=assert(io.open(env.cache..'/changed/rtconfig.txt','w'));f:write(changed);f:close()
   eq(assert(Theme.resolve(env.cache..'/changed',env)).layout,'generic')
