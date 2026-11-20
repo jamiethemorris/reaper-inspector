@@ -237,7 +237,7 @@ def host(lua, sc):
     r = dict(
         EnumProjects=lambda i, *a: (proj, ''), GetSelectedTrack2=lambda *a: 'TRACK',
         ValidatePtr2=lambda p, t, *a: t in tracks,
-        GetMasterTrack=lambda p: 'MASTER', GetParentTrack=lambda t: None,
+        GetMasterTrack=lambda p: 'MASTER', GetParentTrack=lambda t: None, IsTrackSelected=lambda t: not sc.get('unselected'),
         GetTrackGUID=lambda t: '{%s}' % t, GetTrackName=lambda t, *a: (True, tracks[t]['name']),
         GetTrackColor=color,
         ColorFromNative=lambda c: ((int(c) >> 16) & 255, (int(c) >> 8) & 255, int(c) & 255),

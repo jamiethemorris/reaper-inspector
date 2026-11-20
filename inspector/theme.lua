@@ -264,6 +264,85 @@ local function nvk_of(cfg)
   end
   return true
 end
+-- Horizon (Dark and Light share one rtconfig.txt and every mixer image; `themeoption` and the .ReaperTheme colours are what differ): one
+-- drawMcp macro, with a master that reuses the track's own rectangles. Rows hang from the top (lists, IO, pan), the lower block from the
+-- bottom (input, buttons, name, number) and the meter and fader take what is left. Recognised by the statements that place those rows;
+-- anything changed falls back to the generic strip.
+local function horizon_of(cfg)
+  local script=' '..cfg:gsub(';[^\r\n]*',''):gsub('\\%s*[\r\n]',' '):gsub('%s+',' ')..' '
+  for _,s in ipairs({
+    'set m_space_w * scale mcp_space_w',
+    'set m_space_h * scale mcp_space_h',
+    'set mcp.size + * scale folderstate==1 [mcp_size_folder] [mcp_size_A] * 2 [m_space_w]',
+    'set idx_size * scale 16',
+    'set label_size * scale 20',
+    'set top_w * scale 2',
+    'set top_h * scale 2',
+    'set mcp.trackidx - [0 h w idx_size] + [0 idx_size 1] [0 mcp_start]',
+    'set mcp.label + - - [0 mcp.trackidx w label_size] [0 label_size 1] [0 m_space_h] - [m_space_w] * 2 [0 0 m_space_w]',
+    'set top_block - [m_space_w m_space_w w h] + + [0 0 1] * 2 [0 0 m_space_w] + + [0 0 0 idx_size] + [0 0 0 label_size] + [0 0 0 mcp_align] [0 0 0 input_block] + [0 0 0 m_space_w] * 2 [0 0 0 m_space_h]',
+    'set mcp_fx_block - + [top_block top_block top_block mcp_list_h] [top_w top_h] * 2 [0 0 top_w]',
+    'set extmixer_max + * 2 top_w + * 2 el_size + * 4 mcp_list_h * 5 m_space_h',
+    'set extmixer_size - * * 0.01 mcp_ext_size top_block{3} extmixer_max',
+    'set extmixer_size extmixer_size<extmixer_min 0 extmixer_size',
+    'set mcp_io_block + + + [top_block top_block top_block mcp_list_h] [0 m_space_h] + [0 mcp_fx_block{3}] !mcp_ext_free extmixer_hide>0 [0 extmixer_size] 0 0 - [top_w top_h] * 2 [0 0 top_w]',
+    'set pan_wid_block + + [top_block mcp_io_block top_block el_size] + [0 mcp_io_block{3}] [0 m_space_h] - [top_w] * 2 [0 0 top_w]',
+    'set mcp_pan_value_block ?mcp_values_parm + + [top_block pan_wid_block top_block mcp_list_h] + [0 pan_wid_block{3}] [0 m_space_h] - [top_w] * 2 [0 0 top_w] 0',
+    'set vol_meter_block_size - + + top_block [top_w top_h] + * ?mcp_values_parm 4 3 [0 m_space_h] + * ?mcp_values_parm 3 2 [0 mcp_list_h] + [0 extmixer_block{3}] [0 el_size] + * 2 [0 0 top_w top_h] + * ?mcp_values_parm 5 3 [0 0 0 m_space_h] + * ?mcp_values_parm 4 2 [0 0 0 mcp_list_h] + [0 0 0 extmixer_block{3}] [0 0 0 el_size]',
+    'set buttons_block_size + * 3 el_size * 2 m_space_h',
+    'set input_block_size * 2 thi_shelf_h_size',
+    'set middle_indent + buttons_block_size + input_block_size m_space_h',
+    'set top_block - top_block + [0 0 0 middle_indent] [0 0 0 m_space_h]',
+    'set hide_vol_met_size + * scale 100 * 2 m_space_h',
+    'set hide_one ?unrec_align_t 1 trackidx==0 1 vol_meter_block{3}<hide_vol_met_size 1 0',
+    'set hide_one_size + [0 0 0 input_block_size] [0 0 0 m_space_h]',
+    'set hide_two ?unrec_align_t 1 trackidx==0 1 vol_meter_block{3}<hide_vol_met_size 1 0',
+    'set hide_two_size + [0 0 0 el_size] [0 0 0 m_space_h]',
+    'set hide_thi vol_meter_block{3}<hide_vol_met_size 1 0',
+    'set vol_value_block ?mcp_values_parm + + [top_block vol_meter_block top_block mcp_list_h] + [0 vol_meter_block{3}] [0 m_space_h] - [top_w] * 2 [0 0 top_w] 0',
+    'set mcp.fx mcp_fx_block',
+    'set mcp.fxbyp - + [mcp.fx mcp.fx fxbyp_size mcp.fx] [mcp.fx{2}] [fxbyp_size]',
+    'set mcp.io mcp_io_block',
+    'set mcp.extmixer.position + extmixer_block [-1 1 4 -2]',
+    'set mcp.fxlist.font + [mcp_list_font] + [0 mcp_list_h] [0 2]',
+    'set mcp.pan ?hide_five 0 ?top_block + [pan_wid_block pan_wid_block] + trackpanmode<=3 + [0 0 el_size el_size] - * 0.5 [pan_wid_block{2}] * 0.5 [el_size] + trackpanmode==5 - + [0 0 el_size el_size] - * 0.5 [pan_wid_block{2}] * 0.5 [el_size] * scale [10] trackpanmode==6 + * scale [0 0 40 10] - * 0.5 [pan_wid_block{2}] * scale [20] 0 0 0 0',
+    'set mcp.width ?hide_five 0 ?top_block + [pan_wid_block pan_wid_block] + trackpanmode==5 + - + [0 0 el_size el_size] - * 0.5 [pan_wid_block{2}] * 0.5 [el_size] * scale [10] [mcp.pan{2}] trackpanmode==6 + * scale [0 10 40 10] - * 0.5 [pan_wid_block{2}] * scale [20] 0 0 0 0',
+    'set mcp.pan.label ?hide_all 0 ?mcp_values_parm trackpanmode<=3 mcp_pan_value_block - mcp_pan_value_block * 0.5 [0 0 mcp_pan_value_block] 0 0',
+    'set mcp.width.label ?hide_all 0 trackpanmode>=5 + mcp.pan.label [mcp.pan.label{2}] 0',
+    'set mtl * [1 1 0.5 1] vol_meter_block',
+    'set meter_el - mtl [0 0 meter_el_fix]',
+    'set mcp.meter ?hide_all 0 + meter_el scale==1 [2 2 -4 -4] scale==1.5 [3 3 -6 -6] [4 4 -8 -8]',
+    'set vol_resize meter_el{3}<=vol_resize_s 1 0',
+    'set mcp.volume + + meter_el [meter_el{2}] [meter_el_fix]',
+    'set mcp.volume ?hide_all 0 !vol_resize mcp.volume - + [mcp.volume mcp.volume el_size el_size] * 0.5 [mcp.volume{2} mcp.volume{3}] * 0.5 [el_size el_size]',
+    'set volume_borders - - + + mcp.volume [2] [0 volume_spaces] [0 0 3] * 2 [0 0 0 volume_spaces]',
+    'set volume_top_side - volume_borders * 0.719 [0 0 0 volume_borders]',
+    'set volume_down_side - + volume_borders [0 volume_top_side{3}] [0 0 0 volume_top_side]',
+    'set mcp.volumebgline.custom - + [volume_borders volume_borders 2 volume_borders] * 0.5 [volume_borders{2}] [1]',
+    'set input_block !hide_one + [top_block top_block top_block] + [0 top_block{3}] + [0 m_space_h] [0 0 0 input_block_size] 0',
+    'set buttons_block_w * 2 el_size_m',
+    'set buttons_block + + [top_block top_block] + [0 0 buttons_block_w] + + [0 top_block{3}] trackidx==0 0 ?hide_one 0 [0 input_block_size] + * ?hide_one 1 2 [0 m_space_h] [0 0 0 buttons_block_size] - * 0.5 [top_block{2}] + * 0.5 [buttons_block_w] [2]',
+    'set mcp.mute ?hide_all 0 + [buttons_block buttons_block el_size_m el_size] - [0 buttons_block{3}] [0 el_size]',
+    'set mcp.solo ?hide_all 0 + [mcp.mute mcp.mute el_size_m el_size] [mcp.mute{2}]',
+    'set mcp.recarm ?unrec 0 !hide_two - [buttons_block mcp.mute el_size_m el_size] + [0 mcp.mute{3}] [0 m_space_h] 0',
+    'set mcp.recmon ?unrec 0 !hide_two + [mcp.recarm mcp.recarm el_size_m el_size] [mcp.recarm{2}] 0',
+    'set mcp.phase !hide_thi - [buttons_block mcp.mute el_size el_size] !hide_two + * 2 [0 mcp.mute{3}] * 2 [0 m_space_h] + [0 mcp.mute{3}] [0 m_space_h] 0',
+    'set mcp.env !hide_thi + [mcp.phase mcp.phase el_size el_size] + [mcp.phase{2}] * scale [2] 0',
+    'set mcp.recinput ?unrec 0 !hide_one [input_block input_block input_block input_block] 0',
+    'set mcp.fxin ?unrec 0 !hide_one + + [input_block mcp.recinput 0 thi_shelf_h_size] * scale [0 0 12] [0 thi_shelf_h_size{3}] 0',
+    'set mcp.recmode ?unrec 0 !hide_one - + [mcp.fxin mcp.fxin input_block thi_shelf_h_size] - [mcp.fxin{2}] * scale [2 0 -2] [0 0 mcp.fxin{2}] 0',
+    'macro drawMcp scale layout alt',
+    'macro drawMasterMcp scale',
+    'set master.mcp.size + * scale [mcp_size_master] * 2 [m_space_w]',
+    'set master.mcp.mute mcp.mute',
+    'set master.mcp.mono mcp.phase',
+    'set master.mcp.io mcp_io_block',
+    'set master.mcp.meter mcp.meter',
+  }) do
+    if not script:find(' '..s..' ',1,true) then return false end
+  end
+  return true
+end
 -- The 6-style mixer macro, comments dropped and whitespace collapsed, for exact `has(...)` matching.
 local function mcp_script(cfg)
   local body=('\n'..cfg:gsub(';[^\r\n]*','')):match('\n[ \t]*macro[ \t]+drawMcp[ \t]+scale[ \t]*[\r\n]+([%s%S]-)\n[ \t]*endmacro%f[%W]')
@@ -351,6 +430,7 @@ local function layout_of(cfg)
     if ix then return 'iconex',nil,nil,nil,nil,nil,nil,ix end
   end
   if cfg:find('macro%s+drawMcp%s+scale%s+Layout') and nvk_of(cfg) then return 'nvk' end
+  if cfg:find('macro%s+drawMcp%s+scale%s+layout%s+alt') and horizon_of(cfg) then return 'horizon' end
   if not cfg:find('macro%s+drawMcp') and cfg:find('set mcp_narrow',1,true) then
     local gray=gray80_of(cfg)
     if gray then return 'gray80',nil,nil,nil,nil,nil,gray end
@@ -427,6 +507,8 @@ local function finish(t, cfg, inis)
   -- The theme's own defaults for the values its layout script uses (colour variants differ only in these).
   local source = '\n'..cfg
   if t.layout=='flatmadness' or t.layout=='iconex' then source = (source:gsub('\n[ \t]+define_parameter','\ndefine_parameter')) end -- its definitions are indented
+  -- Horizon declares its Theme Adjuster values through a `defp name default min max 'text'` macro.
+  if t.layout=='horizon' then source = (source:gsub('\n[ \t]*defp[ \t]+([%w_%.]+)[ \t]+(%-?%d+)','\ndefine_parameter %1 \'.\' %2')) end
   t.version = tonumber(source:match('\nset theme_version%s+(%d+)')) or 1
   local function direct_param(name)
     if t.live and t.live[name] ~= nil then return t.live[name] end
@@ -465,6 +547,18 @@ local function finish(t, cfg, inis)
     return fallback
   end
   if t.layout=='nvk' then t.row_height=math.max(16,math.min(40,t.param('mcp_fx_insert_height_param',16)));t.send_row_height=t.row_height end -- its Theme Adjuster row height
+  if t.layout=='horizon' then
+    -- 'List elements' 1-5 (default 1) make 8-16 pt cells on a pitch two points taller; the size picks the theme's small, medium or large
+    -- user font. Every mixer label is bold Arimo (user_font6-8: 17, 20 and 23 px at 200%; measured against the native text, which is about 0.97 of that as an em and matches the bold face's ink to 2%).
+    local n=math.max(1,math.min(5,t.param('mcp_list_h_size',1)))
+    t.row_height=8+2*n;t.send_row_height=t.row_height
+    local list=n>=4 and 14.3 or n>=3 and 12.4 or 10.6
+    t.font,t.fonts='Arimo',{main={list,true},list={list,true},sends={list,true},header={14.3,true},bold={12.4,true}}
+    -- Washes and pan colours are named in the script by tone and palette numbers; both editions define the same ones.
+    t.tone,t.palette={},{}
+    for n,r,g,b in cfg:gmatch('\n[ \t]*def[ \t]+tone(%d+)[ \t]+(%d+)[ \t]+(%d+)[ \t]+(%d+)') do t.tone[tonumber(n)]={tonumber(r),tonumber(g),tonumber(b)} end
+    for n,r,g,b in cfg:gmatch('\n[ \t]*def[ \t]+color(%d+)[ \t]+(%d+)[ \t]+(%d+)[ \t]+(%d+)') do t.palette[tonumber(n)]={tonumber(r),tonumber(g),tonumber(b)} end
+  end
   return t
 end
 -- A theme archive is read in place. Only the images actually drawn are copied out, on demand, into

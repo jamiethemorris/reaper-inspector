@@ -1388,6 +1388,79 @@ test('nvk_THEME: the script\'s top-down rows over a fader that takes what is lef
   eq(assert(Theme.resolve(env.cache..'/changed',env)).layout,'generic')
 end)
 
+test('Horizon (Dark and Light): lists from the top, rows from the bottom, the meter and fader taking what is left, one script for both editions', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  h.GetOS=function() return 'macOS-arm64' end
+  local Theme=dofile('inspector/theme.lua')
+  local home=os.getenv('HOME')..'/Library/Application Support/REAPER/ColorThemes/'
+  local env={cache=h.cache..'/horizon',mkdir=function(p) os.execute('mkdir -p \"'..p..'\"') end}
+  -- Dark and Light ship the same rtconfig.txt; recognition reads the script, never the file name.
+  for _,name in ipairs({'Horizon_Dark_Theme.ReaperThemeZip','Horizon_Dark_Theme.ReaperTheme','Horizon_Theme.ReaperThemeZip'}) do
+    local t=assert(Theme.resolve(home..name,env),name);eq(t.layout,'horizon');eq(t.row_height,10);eq(t.font,'Arimo')
+  end
+  local theme=assert(Theme.resolve(home..'Horizon_Dark_Theme.ReaperThemeZip',env))
+  local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),theme,{output_strip=false})
+  local function at(w,hgt) g.ext_retina=2;g.w=w*2;g.h=hgt*2;g.blits={};g.calls={};v:frame() end
+  local function box(hit,x,y,w,hh) assert(math.abs(hit.x-x)<.01,hit.id..' x '..hit.x);assert(math.abs(hit.y-y)<.01,hit.id..' y '..hit.y);assert(math.abs(hit.w-w)<.01,hit.id..' w '..hit.w);assert(math.abs(hit.h-hh)<.01,hit.id..' h '..hit.h) end
+  -- The native screenshot's strip: 62 pt wide, 527 pt tall, stereo pan (every box measured against it).
+  h.a.values.I_PANMODE=5
+  at(62,527);eq(#v.bitmaps.missing,0);local k=v.hits
+  box(k.FX,4,4,53,9);box(k.I_FXEN,49,4,8,9);box(k.fx1,3,13.5,53.5,10);box(k.IO,4,167,53,9)
+  box(k.D_PAN,10.75,178,20,20);box(k.D_WIDTH,30.75,178,20,20)
+  box(k.D_VOL,30.5,211,26.5,163.5);box(k.meter,6.5,213.5,21.5,158.5)
+  box(k.I_RECINPUT,2,389,57,16);box(k.INFX,2,405,12,16);box(k.I_RECMODE,12,405,47,16)
+  box(k.B_PHASE,10,423,20,20);box(k.I_AUTOMODE,32,423,20,20);box(k.I_RECARM,10,445,21,20);box(k.I_RECMON,31,445,21,20)
+  box(k.B_MUTE,10,467,21,20);box(k.I_SOLO,31,467,21,20);box(k.name,2,489,57,20)
+  -- Pan modes, widths and heights: nothing overlaps or leaves the strip; the racks stay clickable at every height.
+  for _,hgt in ipairs({340,409,454,600}) do
+    for _,w in ipairs({62,86,96,120}) do
+      for _,mode in ipairs({3,5,6}) do
+        h.a.values.I_PANMODE=mode;at(w,hgt);k=v.hits
+        local ids={'fx1','output','B_MUTE','I_SOLO','name','D_VOL','meter','IO','FX'}
+        for _,id in ipairs(mode==6 and {'D_DUALPANL','D_DUALPANR'} or mode==5 and {'D_PAN','D_WIDTH'} or {'D_PAN'}) do ids[#ids+1]=id end
+        local order={}
+        for _,id in ipairs(ids) do assert(k[id],id..' missing at '..w..'x'..hgt);order[#order+1]=k[id] end
+        if mode==6 then eq(k.D_PAN,nil) end
+        assert(k.fx1.action and k.output.action)
+        assert(v.fx_box.rows+v.send_box.rows+1>=3,'racks keep 3 rows at '..hgt)
+        for i,a in ipairs(order) do
+          assert(a.x>=0 and a.x+a.w<=w+.01 and a.y>=0 and a.y+a.h<=hgt+.01,a.id..' leaves the strip at '..w..'x'..hgt)
+          for j=i+1,#order do local b=order[j]
+            assert(a.x+a.w<=b.x+.01 or b.x+b.w<=a.x+.01 or a.y+a.h<=b.y+.01 or b.y+b.h<=a.y+.01,a.id..' overlaps '..b.id..' at '..w..'x'..hgt)
+          end
+        end
+        assert(k.D_VOL.h>=40,'fader too short at '..hgt)
+      end
+    end
+  end
+  h.a.values.I_PANMODE=5
+  -- A short strip gives the input rows up (the fader gives way first); the racks and mute/solo stay.
+  at(62,340);assert(v.hits.I_RECINPUT==nil and v.hits.I_RECARM==nil and v.hits.B_MUTE and v.hits.fx1.action)
+  local b0=#h.writes;g.mouse_x,g.mouse_y=0,0;v.hits.fx1.action(8);assert(#h.writes>b0,'a rack row acts on a short strip')
+  local vh=v.hits.D_VOL.h;at(62,600);assert(v.hits.I_RECINPUT and v.hits.I_RECARM and v.hits.D_VOL.h>vh)
+  -- Wider strips share the extra width between the meter and the fader; the bottom rows stay centred.
+  at(96,527);k=v.hits;assert(k.meter.w>21.5+10 and k.D_VOL.w>26.5+10);assert(math.abs((k.B_MUTE.x+k.I_SOLO.x+21)/2-96/2)<1.01)
+  -- Master as the output strip: no input, arm or polarity, a mono switch in the polarity place, the same rows otherwise.
+  v.options.output_strip=true;at(172,527);k=v.hits
+  assert(k['out:B_MUTE'] and k['out:I_SOLO'] and k['out:IO'] and k['out:FX'] and k['out:D_PAN'] and k['out:I_AUTOMODE'] and k['out:D_VOL'])
+  for _,id in ipairs({'I_RECARM','I_RECMODE','I_RECMON','I_RECINPUT','INFX','B_PHASE','name'}) do eq(k['out:'..id],nil) end
+  box(k['out:MONO'],108,445,20,20);box(k['out:I_AUTOMODE'],130,445,20,20);box(k['out:B_MUTE'],108,467,21,20);box(k['out:I_SOLO'],129,467,21,20)
+  assert(k['out:D_VOL'].h>k.D_VOL.h,'the master has no input or record rows, so its fader is taller')
+  -- Click through to the model.
+  local before=#h.writes
+  local hit=v.hits.I_SOLO;g.mouse_x=(hit.x+5)*2;g.mouse_y=(hit.y+5)*2;g.mouse_cap=1;v:frame();g.mouse_cap=0;v:frame()
+  eq(#h.writes,before+1);eq(h.writes[#h.writes][2],'I_SOLO')
+  -- Light draws the same rows from the same script.
+  local t2=assert(Theme.resolve(home..'Horizon_Theme.ReaperThemeZip',env))
+  local v2=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),t2,{output_strip=false})
+  g.ext_retina=2;g.w=124;g.h=1054;g.blits={};v2:frame();eq(#v2.bitmaps.missing,0);box(v2.hits.D_VOL,30.5,211,26.5,163.5)
+  -- Recognised by its script: one changed rectangle falls back to the generic strip.
+  local changed,n=theme.rtconfig:gsub('set idx_size(%s+)%* scale 16','set idx_size%1* scale 17')
+  assert(n==1);os.execute('mkdir -p \"'..env.cache..'/changed\"')
+  local f2=assert(io.open(env.cache..'/changed/rtconfig.txt','w'));f2:write(changed);f2:close()
+  eq(assert(Theme.resolve(env.cache..'/changed',env)).layout,'generic')
+end)
+
 test('Theme Adjuster values are read live only while following REAPER\'s theme', function()
   local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
   local params={{'LayoutA-verboseMcp',1},{'selDot',0}}
