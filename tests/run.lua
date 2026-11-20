@@ -1461,6 +1461,83 @@ test('Horizon (Dark and Light): lists from the top, rows from the bottom, the me
   eq(assert(Theme.resolve(env.cache..'/changed',env)).layout,'generic')
 end)
 
+test('WT Imperial V5: the script\'s blocks from the top over a fader that takes what is left, a 400 pt group hung from the bottom, centred in wider strips', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  h.GetOS=function() return 'macOS-arm64' end
+  local Theme=dofile('inspector/theme.lua')
+  local home=os.getenv('HOME')..'/Library/Application Support/REAPER/ColorThemes/'
+  local env={cache=h.cache..'/imperial',mkdir=function(p) os.execute('mkdir -p \"'..p..'\"') end}
+  for _,name in ipairs({'WT_Imperial_V5_WIPsnapshot_build.ReaperThemeZip','WT_Imperial_V5_WIPsnapshot_build.ReaperTheme'}) do
+    local t=assert(Theme.resolve(home..name,env),name);eq(t.layout,'imperial');eq(t.row_height,14)
+  end
+  for _,name in ipairs({'WT_Imperial.ReaperThemeZip','Imperial_LCS-mod-dark_v3.ReaperThemeZip'}) do -- the siblings write other rectangles
+    local f=io.open(home..name,'rb');if f then f:close();eq(assert(Theme.resolve(home..name,env),name).layout,'generic') end
+  end
+  local theme=assert(Theme.resolve(home..'WT_Imperial_V5_WIPsnapshot_build.ReaperThemeZip',env))
+  local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),theme,{output_strip=false})
+  local function at(w,hgt) g.ext_retina=2;g.w=w*2;g.h=hgt*2;g.blits={};g.calls={};v:frame() end
+  local function box(hit,x,y,w,hh) assert(hit,'missing box');assert(math.abs(hit.x-x)<.01,hit.id..' x '..hit.x);assert(math.abs(hit.y-y)<.01,hit.id..' y '..hit.y);assert(math.abs(hit.w-w)<.01,hit.id..' w '..hit.w);assert(math.abs(hit.h-hh)<.01,hit.id..' h '..hit.h) end
+  -- The native screenshot's strip: 94 pt wide, 1092 pt tall (every box measured against it and the script).
+  at(94,1092);eq(#v.bitmaps.missing,0);local k=v.hits
+  box(k.meter,6,6,38,88);box(k.I_RECINPUT,4,100,85,11);box(k.IO,18,138,16,16);box(k.INFX,61,135,21,21)
+  box(k.I_AUTOMODE,9,172,76,29);box(k.FX,10,201,73,38);box(k.I_FXEN,66,210,16,16);box(k.fx1,10,248,74,14)
+  box(k.I_RECARM,50,511,34,22);box(k.I_RECMON,16,545,21,21);box(k.I_RECMODE,8,566,77,34);box(k.D_PAN,26,624,42,42)
+  box(k.name,0,694,94,18);box(k.I_SOLO,47,725,35,35);box(k.D_VOL,22,774,30,306);box(k.B_PHASE,71,790,14,14);box(k.B_MUTE,71,826,14,14)
+  -- The script's own height: the racks' box gives way to a fader 18 pt shorter (three rows are the floor).
+  at(94,874);k=v.hits;box(k.I_AUTOMODE,9,172,76,22);box(k.FX,10,194,73,32);box(k.D_VOL,22,574,30,288);box(k.name,0,494,94,18)
+  -- Pan modes, widths and heights: nothing overlaps or leaves the strip; rack rows, pan, name, mute, solo and the fader stay at every height.
+  for _,hgt in ipairs({340,409,454,600,874}) do
+    for _,w in ipairs({86,94,96,120}) do
+      for _,mode in ipairs({3,5,6}) do
+        h.a.values.I_PANMODE=mode;at(w,hgt);k=v.hits
+        local ids={'fx1','output','B_MUTE','I_SOLO','B_PHASE','name','D_VOL'}
+        for _,id in ipairs(mode==6 and {'D_DUALPANL','D_DUALPANR'} or mode==5 and {'D_PAN','D_WIDTH'} or {'D_PAN'}) do ids[#ids+1]=id end
+        for _,id in ipairs({'meter','I_RECINPUT','INFX','IO','I_AUTOMODE','FX','I_RECARM','I_RECMON','I_RECMODE'}) do if k[id] then ids[#ids+1]=id end end
+        local order={}
+        for _,id in ipairs(ids) do assert(k[id],id..' missing at '..w..'x'..hgt);order[#order+1]=k[id] end
+        if mode==6 then eq(k.D_PAN,nil) end
+        assert(k.fx1.action and k.output.action)
+        assert(v.fx_box.rows+v.send_box.rows+1>=3,'racks keep 3 rows at '..hgt)
+        for i,a in ipairs(order) do
+          assert(a.x>=0 and a.x+a.w<=w+.01 and a.y>=0 and a.y+a.h<=hgt+.01,a.id..' leaves the strip at '..w..'x'..hgt)
+          for j=i+1,#order do local b=order[j]
+            assert(a.x+a.w<=b.x+.01 or b.x+b.w<=a.x+.01 or a.y+a.h<=b.y+.01 or b.y+b.h<=a.y+.01,a.id..' overlaps '..b.id..' at '..w..'x'..hgt)
+          end
+        end
+        assert(k.D_VOL.h>=90,'fader too short at '..hgt)
+        assert(math.abs((k.B_MUTE.x+14/2)-(w-94)/2-78)<.01,'the 94 pt arrangement is centred at '..w)
+      end
+    end
+  end
+  -- A short strip gives the blocks above the racks up (the fader gives way first); the racks, pan, name, solo and mute stay.
+  h.a.values.I_PANMODE=3;at(94,340);k=v.hits
+  assert(k.I_RECARM==nil and k.I_RECINPUT==nil and k.meter==nil and k.I_AUTOMODE==nil and k.FX==nil and k.B_MUTE and k.fx1.action)
+  local vh=k.D_VOL.h;local b0=#h.writes;g.mouse_x,g.mouse_y=0,0;k.fx1.action(8);assert(#h.writes>b0,'a rack row acts on a short strip')
+  at(94,600);assert(v.hits.I_RECINPUT and v.hits.FX and v.hits.D_VOL.h>vh)
+  at(94,1092);assert(v.hits.I_RECARM and v.hits.I_RECMODE and v.hits.I_AUTOMODE.h==29)
+  -- Master as the output strip: no input, arm, record mode, polarity or name; a mono switch and solo, the same rows otherwise.
+  v.options.output_strip=true;h.a.values.I_PANMODE=3;at(188,874);k=v.hits
+  assert(k['out:B_MUTE'] and k['out:I_SOLO'] and k['out:IO'] and k['out:FX'] and k['out:D_PAN'] and k['out:I_AUTOMODE'] and k['out:D_VOL'] and k['out:MONO'] and k['out:meter'])
+  for _,id in ipairs({'I_RECARM','I_RECMODE','I_RECMON','I_RECINPUT','INFX','B_PHASE','name'}) do eq(k['out:'..id],nil) end
+  box(k['out:MONO'],108,505,42,51);box(k['out:I_SOLO'],151,507,35,35)
+  assert(k['out:D_VOL'].h>=k.D_VOL.h,'the master has no record rows, so its fader is at least as tall')
+  for _,w in ipairs({86,96,120}) do -- the master's rows stay inside its strip and clear of each other at every width
+    at(w*2,454);k=v.hits;local ids={'out:MONO','out:I_SOLO','out:D_VOL','out:B_MUTE','out:D_PAN','out:fx1'}
+    for i,id in ipairs(ids) do local a=assert(k[id],id..' missing');assert(a.x>=w-.01 and a.x+a.w<=w*2+.01,id..' leaves its strip at '..w)
+      for j=i+1,#ids do local b=k[ids[j]];assert(a.x+a.w<=b.x+.01 or b.x+b.w<=a.x+.01 or a.y+a.h<=b.y+.01 or b.y+b.h<=a.y+.01,id..' overlaps '..ids[j]..' at '..w) end end
+  end
+  -- Click through to the model.
+  v.options.output_strip=false;at(94,874)
+  local before=#h.writes
+  local hit=v.hits.I_SOLO;g.mouse_x=(hit.x+5)*2;g.mouse_y=(hit.y+5)*2;g.mouse_cap=1;v:frame();g.mouse_cap=0;v:frame()
+  eq(#h.writes,before+1);eq(h.writes[#h.writes][2],'I_SOLO')
+  -- Recognised by its script: one changed rectangle falls back to the generic strip.
+  local changed,n=theme.rtconfig:gsub('set mcp.solo(%s+)%[47 507 35 35','set mcp.solo%1[47 508 35 35')
+  assert(n==1);os.execute('mkdir -p \"'..env.cache..'/changed\"')
+  local f2=assert(io.open(env.cache..'/changed/rtconfig.txt','w'));f2:write(changed);f2:close()
+  eq(assert(Theme.resolve(env.cache..'/changed',env)).layout,'generic')
+end)
+
 test('Theme Adjuster values are read live only while following REAPER\'s theme', function()
   local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
   local params={{'LayoutA-verboseMcp',1},{'selDot',0}}

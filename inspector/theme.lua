@@ -343,6 +343,52 @@ local function horizon_of(cfg)
   end
   return true
 end
+-- WT Imperial V5 (default mixer layout): `draw_mcp` and `draw_mcp_master` in a fixed 94 pt strip (118 pt master) of design size 874: a 400 pt group
+-- (name, solo, fader, polarity/mute, number) hung from the bottom and blocks stacked from the top (meter and input panel, automation, FX, the racks'
+-- box, record mode, record arm and monitor, pan), which the script drops in a fixed order when the racks' box would be too small. Recognised by the
+-- statements that place those blocks and colour its text; the sibling Imperial themes write other rectangles and fall back to the generic strip.
+local function imperial_of(cfg)
+  local script=' '..cfg:gsub(';[^\r\n]*',''):gsub('\\%s*[\r\n]',' '):gsub('%s+',' ')..' '
+  for _,s in ipairs({
+    'set need_extmix_h + 4 mcp_wantextmix<=2 38 mcp_wantextmix==3 68 mcp_wantextmix==4 40 mcp_wantextmix==5 61 mcp_wantextmix==6 73 mcp_wantextmix==7 87',
+    'set have_extmix_h - - - - - - - h 400 block_top{h} block_auto{h} block_fx{h} block_recmode{h} block_monitor{h} block_pan{h}', 'set lost_extmixer have_extmix_h{0}<need_extmix_h{0} 1 0',
+    'set block_extmixer + + [0 block_top{h}] [0 block_auto{h}] [0 block_fx{h}]',
+    'set block_extmixer - - - - - [0 block_extmixer 74 h] [0 0 0 400] [0 0 0 block_extmixer{1}] [0 0 0 block_recmode{h}] [0 0 0 block_monitor{h}] [0 0 0 block_pan{h}]', 'macro draw_mcp', 'set mcp.size [94 874 0 397]',
+    'set h_delta - h mcp.size{y}', 'set block_top [0 0 0 172]', 'set block_auto h<dividers_hide{0} [0 0 0 22] [0 0 0 29]', 'set block_fx [0 0 0 45]', 'set block_monitor [0 0 0 71]',
+    'set block_recmode h<dividers_hide{0} [0 0 0 26] [0 0 0 38]', 'set block_pan [0 0 0 93]', 'set block_auto ?lost_extmixer{0} [0] [0 block_top{h} 94 block_auto{h}]',
+    'set block_fx ?lost_extmixer{0} [0] + [0 block_auto{h} 94 block_fx] [0 block_top{h}]', 'set block_recmode ?lost_extmixer{0} [0] + - - [0 h] [0 400] [0 block_pan{h}] * [0 -1 0 1] block_recmode{h}',
+    'set block_monitor ?lost_extmixer{0} [0] + - - - [0 h] [0 400] [0 block_recmode{h}] [0 block_pan{h}] * [0 -1 0 1] block_monitor{h}', 'set block_top ?lost_extmixer{0} [0] [0 0 94 block_top]',
+    'set block_pan ?lost_extmixer{0} [0] + - [0 h] [0 400] * [0 -1 0 1] block_pan{h}', 'set mcp.volume.label block_top{h}<1 [0] [52 22 37 7]', 'set mcp.volume.label.color [30 150 168]', 'set mcp.meter block_top{h}<1 [0] [6 6 38 88]',
+    'set mcp.meter.readout.color [168 103 80 150 224 110 79 255]', 'set mcp.meter.scale.color.unlit.top ?recarm [255 0 0 255 0 0 0 255] [64 22 0 0]', 'set mcp.meter.scale.color.unlit.bottom ?recarm [255 0 89 255 0 0 0 255] [33 0 10 0]',
+    'set mcp.recinput block_top{h}<1 [0] [4 100 85 11]', 'imageshift mcp.recinput recarm 2 2', 'set mcp.recinput.color ?recarm [255 60 60] [66 113 127]', 'set mcp.io block_top{h}<1 [0] [18 138 16 16]',
+    'set mcp.fxin block_top{h}<1 [0] [61 135 21 21]', 'set mcp.env block_auto{h}<1 [0] + [0 block_auto] block_auto{h}<27 [9 0 76 23] [9 0 76 30]', 'set mcp.fx block_fx{h}<1 [0] + [0 block_fx] block_auto{h}<27 [10 0 73 32] [10 0 73 38]',
+    'set mcp.fxbyp block_fx{h}<1 [0] + [0 block_fx] block_auto{h}<27 [66 3 16 16] [66 9 16 16]', 'set mcp.extmixer.position + block_extmixer [10 2 0 -2]', 'set mcp.recmon block_monitor{h}<1 [0] + [0 block_monitor] [16 55 21 21]',
+    'set mcp.recarm block_monitor{h}<1 [0] + [0 block_monitor] [50 21 34 22]', 'set mcp.recmode block_recmode{h}<1 [0] + [0 block_recmode] block_recmode{h}<38 [8 0 77 33] [8 4 77 35]',
+    'set mcp.pan block_pan{h}<1 [0] + [0 block_pan] trackpanmode<4 [26 25 42 42] trackpanmode==6 [12 35 28 28] [9 23 75 19]', 'set mcp.pan.fadermode trackpanmode==5 [0] [1]', 'set mcp.pan.color [204 204 204 255]',
+    'set mcp.pan.label block_pan{h}<1 [0] + [0 block_pan] trackpanmode<4 [31 74 32 10] trackpanmode==6 [11 72 30 10] [51 7 31 10]', 'set mcp.pan.label.color [30 150 168]',
+    'set mcp.width block_pan{h}<1 [0] + [0 block_pan] trackpanmode==5 [9 65 75 19] trackpanmode==6 [53 35 28 28] [0]', 'set mcp.width.fadermode trackpanmode==6 [1] [0]',
+    'set mcp.width.label block_pan{h}<1 [0] + [0 block_pan] trackpanmode==5 [51 49 32 10] trackpanmode==6 [51 72 32 10] [0]', 'set mcp.width.label.color [30 150 168]', 'set mcp.label [0 476 94 18 0 1 0 1]',
+    'imageshift mcp.label trackcolor_valid 3 3', 'imageshift mcp.label recarm 2 3', 'set mcp.label.margin [5 1 5 1 0.5]',
+    'set mcp.label.color ?recarm [255 180 180] ?trackcolor_valid + [trackcolor_r trackcolor_g trackcolor_b] [100 100 100] [128 251 255]', 'set mcp.volume [22 556 30 306 0 1 0 1]', 'set mcp.phase [71 572 14 14 0 1 0 1]',
+    'set mcp.mute [71 608 14 14 0 1 0 1]', 'set mcp.solo [47 507 35 35 0 1 0 1]', 'set mcp.trackidx [56 851 29 17 0 1 0 1]', 'set mcp.trackidx.color ?recarm [200 30 30] [204 204 204]', 'macro draw_mcp_master',
+    'set master.mcp.size [118 874 0 397]', 'set block_top h<meter_h{x} [0 0 0 0] [0 0 94 174]', 'set block_auto h<auto_h{x} [0 0 0 0] h<auto_s{x} [11 block_top{h} 94 22] [11 block_top{h} 94 29]',
+    'set block_monitor h<monitor_h{x} [0 0 0 0] [0 0 0 109]', 'set block_pan h<pan_h{x} [0 0 0 0] [0 0 0 93]',
+    'set block_insert - - - - + + [0 block_top{h}] [0 block_auto{h} 94 476] [0 0 0 h_delta] [0 0 0 block_top{h}] [0 0 0 block_auto{h}] [0 0 0 block_monitor{h}] [0 0 0 block_pan{h}]',
+    'set block_pan + + + [0 block_top{h}] [0 block_auto{h}] [0 block_insert{h}] [12 block_monitor{h} 94 block_pan]', 'set master.mcp.meter block_top{h}<1 [0] [13 13 92 150]', 'set master.mcp.volume.label [32 478 79 13 0 1 0 1]',
+    'set master.mcp.env block_auto{h}<1 [0] + [block_auto block_auto] block_auto{h}<27 [9 0 76 23] [9 0 76 30]', 'set master.mcp.fx block_insert{h}<1 [0] h<fx_h{x} [0] + [0 block_insert] block_auto{h}<27 [21 0 73 32] [21 0 73 38]',
+    'set master.mcp.fxbyp block_insert{h}<1 [0] h<fx_h{x} [0] + [0 block_insert] block_auto{h}<27 [80 3 16 16] [80 9 16 16]',
+    'set master.mcp.extmixer.position block_insert{h}<1 [0] + [0 block_insert 0 block_insert] h<fx_h{x} [10 2 98 -6] master.mcp.fx{h}<38 [10 41 98 -45] [10 47 98 -51]', 'set master.mcp.io block_monitor{h}<1 [0] [82 346 16 16 0 1 0 1]',
+    'set master.mcp.label block_monitor{h}<1 [0] [0 475 3 3 0 1 0 1]', 'set master.mcp.pan block_pan{h}<1 [0] + [block_pan block_pan] trackpanmode<4 [26 25 42 42] trackpanmode==6 [12 35 28 28] [9 23 75 19]',
+    'set master.mcp.pan.fadermode trackpanmode==5 [0] [1]', 'set master.mcp.pan.label block_pan{h}<1 [0] + [block_pan block_pan] trackpanmode<4 [31 74 32 10] trackpanmode==6 [11 72 30 10] [51 7 31 10]',
+    'set master.mcp.width block_pan{h}<1 [0] + [block_pan block_pan] trackpanmode==5 [9 65 75 19] trackpanmode==6 [53 35 28 28] [0]', 'set master.mcp.width.fadermode trackpanmode==6 [1] [0]',
+    'set master.mcp.width.label block_pan{h}<1 [0] + [block_pan block_pan] trackpanmode==5 [51 49 32 10] trackpanmode==6 [51 72 32 10] [0]', 'set master.mcp.solo [64 507 35 35 0 1 0 1]', 'set master.mcp.mute [82 608 14 14 0 1 0 1]',
+    'set master.mcp.menubutton [76 638 26 32 0 1 0 1]', 'set master.mcp.mono [14 505 42 58 0 1 0 1]', 'set master.mcp.volume [25 556 30 306 0 1 0 1]', 'set dividers_hide 960', 'set meter_h 638', 'set auto_s 912', 'set auto_h 887',
+    'set fx_h 770', 'set monitor_h 912', 'set pan_h 729',
+  }) do
+    if not script:find(' '..s..' ',1,true) then return false end
+  end
+  return script:find(" draw_mcp Layout 'a1-- Default' draw_mcp ",1,true)~=nil
+end
 -- The 6-style mixer macro, comments dropped and whitespace collapsed, for exact `has(...)` matching.
 local function mcp_script(cfg)
   local body=('\n'..cfg:gsub(';[^\r\n]*','')):match('\n[ \t]*macro[ \t]+drawMcp[ \t]+scale[ \t]*[\r\n]+([%s%S]-)\n[ \t]*endmacro%f[%W]')
@@ -431,6 +477,7 @@ local function layout_of(cfg)
   end
   if cfg:find('macro%s+drawMcp%s+scale%s+Layout') and nvk_of(cfg) then return 'nvk' end
   if cfg:find('macro%s+drawMcp%s+scale%s+layout%s+alt') and horizon_of(cfg) then return 'horizon' end
+  if cfg:find('macro%s+draw_mcp%s') and imperial_of(cfg) then return 'imperial' end
   if not cfg:find('macro%s+drawMcp') and cfg:find('set mcp_narrow',1,true) then
     local gray=gray80_of(cfg)
     if gray then return 'gray80',nil,nil,nil,nil,nil,gray end
@@ -484,6 +531,13 @@ local function finish(t, cfg, inis)
     t.row_height,t.send_row_height = 16,16
     t.font,t.fonts = 'Verdana',{main={12.3,false,'Arial Narrow'},list={15.2},sends={15.2},header={17.2},bold={15.9}}
     t.unscaled_base = true
+  end
+  if t.layout=='imperial' then
+    -- 14 pt list cells (its fx/send list art is 14 rows a state; the 21 the generic reader finds is commented out). The mixer's faces are Tahoma
+    -- (lb_font, 9 px: lists, readouts, input), Calibri 13 (name) and Calibri 16 bold (number), which REAPER shows in a Helvetica-like substitute
+    -- (measured against the native screenshot: em 13 and 16 pt). The art exists only in the base folder and is drawn at the display's density.
+    t.row_height,t.send_row_height = 14,14
+    t.font,t.fonts = 'Tahoma',{main={11.4},list={11.4},sends={11.4},header={16.5,false,'Arial'},bold={20.3,true,'Arial'}}
   end
   if t.layout=='csixsx' then
     -- Its 200% fonts: Roboto 10 pt for labels and input, 15 pt for the name; Roboto Condensed regular 12 pt for the volume

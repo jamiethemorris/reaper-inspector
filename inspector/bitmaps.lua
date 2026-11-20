@@ -75,11 +75,12 @@ function M:get(name,optional)
   self.cache[name]=a;return a
 end
 -- Source rectangle of one state inside the guide-free interior.
-function M:frame(name,state,optional)
+function M:frame(name,state,optional,frames)
   local a=self:get(name,optional);if not a then return nil end
   local sx,sy,sw,sh=a.x,a.y,a.w,a.h
+  if frames then sw=a.w//frames;sx=sx+math.max(0,math.min(frames-1,state or 0))*sw end -- a strip of frames the layout picks from (not three states)
   state=math.max(0,math.min(2,state or 0))
-  if horizontal[name] or horizontal[name:gsub('_ol$','')] then sw=math.floor(sw/3);sx=sx+state*sw end
+  if not frames and (horizontal[name] or horizontal[name:gsub('_ol$','')]) then sw=math.floor(sw/3);sx=sx+state*sw end
   if vertical[name] then
     -- A locally edited sheet can be a row or two short: integral rows, last one clamped.
     local endy=sy+sh;local step=math.ceil(sh/3)
@@ -96,6 +97,11 @@ end
 -- cannot pull guide colours into a slice; smooth is for genuinely resized art.
 function M:blit(a,sx,sy,sw,sh,dx,dy,dw,dh,smooth)
   if dw<=0 or dh<=0 or sw<=0 or sh<=0 then return end
+  local clip=self.clip -- device columns [x0,x1) a layout keeps its art inside (the source is cut in proportion)
+  if clip then
+    local x0,x1=math.max(dx,clip[1]),math.min(dx+dw,clip[2]);if x1<=x0 then return end
+    if x0~=dx or x1~=dx+dw then local k=sw/dw;sx=sx+math.floor((x0-dx)*k+.5);sw=math.max(1,math.floor((x1-x0)*k+.5));dx,dw=x0,x1-x0 end
+  end
   local g=self.g;g.a=1;g.mode=smooth and 0 or 4
   g.blit(a.slot,1,0,sx,sy,sw,sh,dx,dy,dw,dh)
 end
@@ -126,8 +132,8 @@ end
 -- Guide margins keep their pixel size and only the middle stretches, so glyphs such as
 -- the input arrow are never scaled. Yellow-guide overhang is drawn outside the rectangle.
 -- `crop` (points) draws only the top of the art, for a control shown shorter than its artwork.
-function M:draw(name,state,x,y,w,h,scale,optional,crop)
-  local a,sx,sy,sw,sh=self:frame(name,state,optional);if not a then return false end
+function M:draw(name,state,x,y,w,h,scale,optional,crop,frames)
+  local a,sx,sy,sw,sh=self:frame(name,state,optional,frames);if not a then return false end
   if crop then sh=math.min(sh,math.floor(crop*a.scale+.5)+a.over[2]) end
   local k=scale/a.scale
   local function px(v) return math.floor(v*scale+.5) end
