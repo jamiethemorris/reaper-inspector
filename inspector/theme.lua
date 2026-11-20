@@ -389,6 +389,132 @@ local function imperial_of(cfg)
   end
   return script:find(" draw_mcp Layout 'a1-- Default' draw_mcp ",1,true)~=nil
 end
+-- Older Imperial siblings (WT Imperial and Imperial LCS-mod dark v3): one mixer script skeleton with two sets of numbers, the unnamed base layout
+-- of each (`clear mcp.*` / `clear master.mcp.*` up to the first named layout). Recognised by these exact statements (rectangles and the text colours the
+-- layout draws); the Inspector reads its geometry from them too. Anything changed, or the base missing, falls back to the generic strip.
+local IMPERIAL_OLD={
+  wt={track=[[
+size [94 874]
+meter tracknch<3 [9 7 24 100 0 0 0 0] [2 7 42 100 0 0 0 0]
+recinput [44 98 40 10 0 0 0 0]
+recinput.color ?recarm [255 160 72] [78 91 102]
+trackidx [2 479 17 13 0 1 0 1]
+trackidx.color ?recarm [255 100 100] [163 171 179]
+label [21 475 72 20 0 1 0 1]
+label.color [80 80 80]
+volume [22 556 30 306 0 1 0 1]
+volume.label [47 21 36 7 0 0 0 0]
+volume.label.color [80 100 117]
+pan trackpanmode<4 [29 409 36 36 0 1 0 1] trackpanmode==6 [12 417 27 27 0 1 0 1] [18 400 58 12 0 1 0 1]
+pan.color [204 204 204 255]
+pan.label trackpanmode<4 [31 457 32 10 0 1 0 1] trackpanmode==6 [9 455 30 10 0 1 0 1] [12 416 30 10 0 1 0 1]
+pan.label.color [108 118 123]
+width trackpanmode==5 [18 447 58 12 0 1 0 1] trackpanmode==6 [53 417 27 27 0 1 0 1] [0]
+width.label trackpanmode==5 [11 432 32 10 0 1 0 1] trackpanmode==6 [51 455 32 10 0 1 0 1] [0]
+width.label.color [108 118 123]
+io [17 137 18 23 0 0 0 0]
+fxin [60 135 21 24 0 0 0 0]
+fx [11 211 21 24 0 0 0 0]
+fxbyp [66 213 18 23 0 0 0 0]
+env [12 183 12 12 0 0 0 0]
+recarm [50 293 34 22 0 1 0 1]
+recmon [16 328 21 24 0 1 0 1]
+recmode [32 359 22 21 0 1 0 1]
+phase [71 572 14 14 0 1 0 1]
+mute [71 608 14 14 0 1 0 1]
+solo [47 507 35 35 0 1 0 1]
+extmixer.position [11 253 72 16 0 0 0 1]
+]],master=[[
+size [118 874]
+meter [20 21 78 131 0 0 0 0]
+volume.label [56 158 36 7 0 0 0 0]
+volume.label.color [80 100 117]
+env [24 183 12 12 0 0 0 0]
+fx [18 211 21 24 0 0 0 0]
+fxbyp [79 213 18 23 0 0 0 0]
+io [88 359 18 23 0 1 0 1]
+pan [40 409 36 36 0 1 0 1]
+pan.label [42 457 32 10 0 1 0 1]
+pan.label.color [108 118 123]
+label !0 [0 475 117 20 0 1 0 1]
+label.color [160 160 160]
+solo [64 507 35 35 0 1 0 1]
+mute [82 608 14 14 0 1 0 1]
+menubutton [76 638 26 32 0 1 0 1]
+mono [14 505 42 58 0 1 0 1]
+volume [25 556 30 306 0 1 0 1]
+extmixer.position [14 253 89 16 0 0 0 1]
+]]},
+  lcs={track=[[
+size [70 874]
+meter tracknch<3 [11 7 50 100 0 0 0 0] [2 7 42 100 0 0 0 0]
+recinput [7 273 53 9 0 1 0 01]
+recinput.color ?recarm [255 160 72] [78 91 102]
+trackidx [17 457 20 10 0 1 0 1]
+trackidx.color ?recarm [200 0 0] [215 215 215]
+label [-1 475 71 20 0 1 0 1]
+label.color [30 30 30]
+volume [20 556 30 306 0 1 0 1]
+volume.label [14 543 36 7 0 1 0 1]
+volume.label.color [150 170 184]
+pan trackpanmode<4 [17 383 36 36 0 1 0 1] trackpanmode==6 [6 388 27 27 0 1 0 1] [6 385 58 12 0 1 0 1]
+pan.color [204 204 204 255]
+pan.label trackpanmode<4 [16 430 38 10 0 1 0 1] trackpanmode==6 [5 427 27 10 0 1 0 1] [6 403 27 10 0 1 0 1]
+pan.label.color [108 118 123]
+width trackpanmode==5 [6 420 58 12 0 1 0 1] trackpanmode==6 [37 388 27 27 0 1 0 1] [0]
+width.label trackpanmode==5 [37 403 27 10 0 1 0 1] trackpanmode==6 [37 427 27 10 0 1 0 1] [0]
+width.label.color [108 118 123]
+io [5 137 18 23 0 0 0 0]
+fxin [52 133 15 15 0 0 0 0]
+fx [2 174 21 24 0 0 0 0]
+fxbyp [49 176 18 23 0 0 0 0]
+env [15 159 40 12 0 0 0 0]
+recarm [30 303 34 22 0 1 0 1]
+recmon [8 304 14 14 0 1 0 1
+recmode [24 342 22 21 0 1 0 1]
+phase [46 454 14 14 0 1 0 1]
+mute [5 507 24 24 0 1 0 1]
+solo [40 507 24 24 0 1 0 1]
+extmixer.position [4 215 60 52 0 0 1 1]
+]],master=[[
+size [118 874]
+meter [20 21 78 131 0 0 0 0]
+volume.label [56 158 36 7 0 0 0 0]
+volume.label.color [80 100 117]
+env [35 183 50 12 0 0 0 0]
+fx [18 211 21 24 0 0 0 0]
+fxbyp [79 213 18 23 0 0 0 0]
+io [88 359 18 23 0 1 0 1]
+pan trackpanmode<=4 [40 408 36 36 0 1 0 1] [40 408 36 36 0 1 0 1]
+pan.label [42 457 32 10 0 1 0 1]
+pan.label.color trackpanmode<=4 [108 118 123] [218 118 123]
+label [7 475 102 20 0 1 0 1]
+label.color [30 30 30]
+mute [14 508 35 33 0 1 0 1]
+menubutton [76 603 26 32 0 1 0 1]
+mono [64 506 42 56 0 1 0 1]
+volume [25 556 30 306 0 1 0 1]
+extmixer.position [14 253 89 102 0 0 0 1]
+]]},
+}
+local function imperial_old_of(cfg)
+  local script=' '..cfg:gsub(';[^\r\n]*',''):gsub('\\%s*[\r\n]',' '):gsub('%s+',' ')..' '
+  local function base(start) -- the statements between `clear ...` and the first named layout
+    local a=script:find(' '..start..' ',1,true)
+    if a then return script:sub(a,(script:find(" Layout '",a,true) or #script)+1) end
+  end
+  local track,master=base('clear mcp.*'),base('clear master.mcp.*')
+  if not (track and master) then return nil end
+  for name,set in pairs(IMPERIAL_OLD) do
+    local ok=true
+    for _,part in ipairs({{'mcp.',set.track,track},{'master.mcp.',set.master,master}}) do
+      for key,tail in part[2]:gmatch('(%S+) ([^\n]+)') do
+        if not part[3]:find(' set '..part[1]..key..' '..tail..' ',1,true) then ok=false end
+      end
+    end
+    if ok then return name end
+  end
+end
 -- The 6-style mixer macro, comments dropped and whitespace collapsed, for exact `has(...)` matching.
 local function mcp_script(cfg)
   local body=('\n'..cfg:gsub(';[^\r\n]*','')):match('\n[ \t]*macro[ \t]+drawMcp[ \t]+scale[ \t]*[\r\n]+([%s%S]-)\n[ \t]*endmacro%f[%W]')
@@ -478,6 +604,8 @@ local function layout_of(cfg)
   if cfg:find('macro%s+drawMcp%s+scale%s+Layout') and nvk_of(cfg) then return 'nvk' end
   if cfg:find('macro%s+drawMcp%s+scale%s+layout%s+alt') and horizon_of(cfg) then return 'horizon' end
   if cfg:find('macro%s+draw_mcp%s') and imperial_of(cfg) then return 'imperial' end
+  local old=not cfg:find('macro%s+draw_mcp') and imperial_old_of(cfg)
+  if old then return 'imperial2',nil,nil,nil,nil,nil,nil,nil,old end
   if not cfg:find('macro%s+drawMcp') and cfg:find('set mcp_narrow',1,true) then
     local gray=gray80_of(cfg)
     if gray then return 'gray80',nil,nil,nil,nil,nil,gray end
@@ -502,7 +630,7 @@ local function finish(t, cfg, inis)
   colors.col_seltrack, colors.col_seltrack2, colors.col_mixerbg = named('col_seltrack'), named('col_seltrack2'), named('col_mixerbg')
   colors.col_tcp_text = named('col_tcp_text') -- the mixer's volume readout, where its script names no colour
   t.row_height = math.max(12,math.min(26,row)); t.rtconfig = cfg; t.colors = colors
-  t.layout,t.stock6,t.recarm_y,t.label_h,t.compact6,t.full_art,t.gray80,t.ix = layout_of(cfg)
+  t.layout,t.stock6,t.recarm_y,t.label_h,t.compact6,t.full_art,t.gray80,t.ix,t.imp2 = layout_of(cfg)
   if t.full_art or t.layout=='csixsx' then t.csix = csix_colors(cfg) end
   if t.layout=='frxst' then t.send_row_height = math.max(12,math.min(30,tonumber(cfg:match('set%s+mcp%.sendlist%.font%s+%[%s*%d+%s+(%d+)')) or 27)) end
   if t.layout=='mydaw' then
@@ -538,6 +666,23 @@ local function finish(t, cfg, inis)
     -- (measured against the native screenshot: em 13 and 16 pt). The art exists only in the base folder and is drawn at the display's density.
     t.row_height,t.send_row_height = 14,14
     t.font,t.fonts = 'Tahoma',{main={11.4},list={11.4},sends={11.4},header={16.5,false,'Arial'},bold={20.3,true,'Arial'}}
+  end
+  if t.layout=='imperial2' then
+    -- The geometry the layout draws, parsed from the recognised statements: `o[kind][key]` is the list of [numbers] in the order they are written
+    -- (a pan-mode condition picks one of them). Lists are 14 pt cells (WT) or 12 pt rows (the LCS script's `mcp.fxlist.font [2 12]`) on the same 14 row
+    -- art; the faces are Tahoma (lb_font) and Arial, which REAPER shows in Helvetica-like substitutes (em sizes measured as for V5).
+    local o={}
+    for kind,body in pairs(IMPERIAL_OLD[t.imp2]) do
+      o[kind]={}
+      for key,tail in body:gmatch('(%S+) ([^\n]+)') do
+        local list={};for inner in tail:gmatch('%[([%d%s%.%-]+)') do local r={};for n in inner:gmatch('%-?[%d%.]+') do r[#r+1]=tonumber(n) end;list[#list+1]=r end
+        o[kind][key]=list
+      end
+    end
+    t.old=o
+    t.row_height=t.imp2=='lcs' and 12 or 14;t.send_row_height=t.row_height
+    t.font,t.fonts = 'Tahoma',{main={11.4},list={11.4},sends={11.4},header={13.9,false,'Arial'},bold={13.6,true,'Arial'}}
+    if t.imp2=='lcs' then t.fonts.list,t.fonts.sends={13.9,true,'Arial'},{13.9,true,'Arial'} end -- its lists use font #2, Arial bold
   end
   if t.layout=='csixsx' then
     -- Its 200% fonts: Roboto 10 pt for labels and input, 15 pt for the name; Roboto Condensed regular 12 pt for the volume
