@@ -699,6 +699,62 @@ local function imperial_old_of(cfg)
     if ok then return name end
   end
 end
+-- REAPER's old stock themes. 3.0's rtconfig holds fourteen settings and no WALTER at all (REAPER's built-in positions apply), so there is no
+-- rectangle to recognise it by: it is this exact script and nothing else. 4.0 is recognised by its default mixer block (the statements up to
+-- its first named layout, in which the strip, pan, name, button column, fader and meter rectangles all sit).
+local DEFAULT3=' use_pngs 1 tcp_showborders 0 mcp_showborders 0 tcp_vupeakwidth 2 mcp_vupeakheight 4 mcp_mastervupeakheight 4 mcp_altmeterpos 0 use_overlays 0 transport_showborders 1 tcp_vol_zeroline 85000000 tcp_pan_zeroline 67000000 mcp_vol_zeroline 85000000 mcp_pan_zeroline 67000000 trans_speed_zeroline 99999999 '
+local DEFAULT4=[[
+set mcp.size [73 319]
+front mcp.width.label mcp.pan.label mcp.recmon mcp.volume.label
+set mcp.folder folderstate<0 [66 300 7 18 0 1 0 1] [0 300 18 18 0 1 0 1]
+set mcp.label [1 35 70 18 0 0 0 0]
+set mcp.label.margin [2 0 2 0 0.5]
+set mcp.label.color ?recarm [255 87 87] [184 184 184]
+set mcp_column_anchor [48 105]
+set mcp.mute + mcp_column_anchor [0 0 17 18 0 0 0 0]
+set mcp.solo + mcp_column_anchor [0 21 17 18 0 0 0 0]
+set mcp.recmon + mcp_column_anchor h>273 [0 42 17 14 0 0 0 0] [0 42 17 14 0 0 0 0]
+set mcp.recmode + mcp_column_anchor h>273 [0 54 17 22 0 0 0 0] [0]
+set mcp.env + mcp_column_anchor h>283 [0 79 17 26 0 0 0 0] h>273 [0 79 17 14 0 0 0 0] h>233 [0 59 17 14 0 0 0 0] [0]
+set mcp.phase + mcp_column_anchor h>283 [1 108 15 16 0 0 0 0] h>273 [1 96 15 16 0 0 0 0] h>251 [1 76 15 16 0 0 0 0] [0]
+set mcp.recarm [41 260 20 33 0 1 0 1]
+set mcp.meter.vu.div [2 1]
+set mcp.meter h>273 [27 123 12 166 0 0 0 1] [27 112 12 177 0 0 0 1]
+set mcp.meter.readout.color [255 255 255 140 255 255 255 200]
+set mcp.volume h>273 [9 119 17 173 0 0 0 1] [9 108 17 184 0 0 0 1]
+set mcp.volume.label h>273 [7 105 35 14 0 0 0 0] [7 105 35 3 0 0 0 0]
+set mcp.volume.label.color [179 179 179]
+set mcp.volume.label.margin h>273 [1 5 0 0 0.5] [52 5 53 0 0.5]
+set mcp.pan trackpanmode>=4 [6 62 18 18 0 0 0 0] [4 65 30 30 0 0 0 0]
+set mcp.pan.color [51 51 51 191 0 0 0 0]
+set mcp.pan.label trackpanmode>=4 [24 63 41 16 0 0 0 0] [31 72 34 16 0 0 0 0]
+set mcp.pan.label.color [221 224 224]
+set mcp.pan.label.margin [0 0 3 0 1]
+set mcp.width trackpanmode>=4 [6 82 18 18 0 0 0 0] [0]
+set mcp.width.color [255 255 255 225 0 0 0 0]
+set mcp.width.label trackpanmode>=4 [24 83 41 16 0 0 0 0] [0]
+set mcp.width.label.color [221 224 224]
+set mcp.width.label.margin [0 0 3 0 1]
+set mcp.io ?recarm [30 18 39 16 0 0 0 0] [30 3 39 31 0 0 0 0]
+set mcp.fx [3 17 23 17 0 0 0 0]
+set mcp.fxbyp [3 3 23 14 0 0 0 0]
+set mcp.fxin ?recarm [30 3 39 14 0 0 0 0] [0]
+set mcp.extmixer.mode [0]
+set mcp.trackidx [19 300 35 18 0 1 0 1]
+set mcp.trackidx.margin [0 3 0 5 0.5]
+set mcp.trackidx.color ?recarm [200 0 0] [67 69 69]
+]]
+local function default34_of(cfg)
+  local script=(' '..cfg:gsub(';[^\r\n]*',''):gsub('\\%s*[\r\n]',' '):gsub('%s+',' ')..' '):gsub('%s+',' ')
+  if script==DEFAULT3 then return 3 end
+  local a=script:find(' clear mcp.* ',1,true)
+  local block=a and script:sub(a,(script:find(' Layout ',a,true) or #script)+1)
+  if not block then return nil end
+  for stmt in DEFAULT4:gmatch('[^\n]+') do
+    if not block:find(' '..stmt..' ',1,true) then return nil end
+  end
+  return 4
+end
 -- The 6-style mixer macro, comments dropped and whitespace collapsed, for exact `has(...)` matching.
 local function mcp_script(cfg)
   local body=('\n'..cfg:gsub(';[^\r\n]*','')):match('\n[ \t]*macro[ \t]+drawMcp[ \t]+scale[ \t]*[\r\n]+([%s%S]-)\n[ \t]*endmacro%f[%W]')
@@ -797,6 +853,8 @@ local function layout_of(cfg)
     local gray=gray80_of(cfg)
     if gray then return 'gray80',nil,nil,nil,nil,nil,gray end
   end
+  local d34=default34_of(cfg)
+  if d34 then return 'default34',nil,nil,nil,nil,nil,nil,nil,nil,d34 end
   return 'generic'
 end
 local function finish(t, cfg, inis)
@@ -817,7 +875,7 @@ local function finish(t, cfg, inis)
   colors.col_seltrack, colors.col_seltrack2, colors.col_mixerbg = named('col_seltrack'), named('col_seltrack2'), named('col_mixerbg')
   colors.col_tcp_text = named('col_tcp_text') -- the mixer's volume readout, where its script names no colour
   t.row_height = math.max(12,math.min(26,row)); t.rtconfig = cfg; t.colors = colors
-  t.layout,t.stock6,t.recarm_y,t.label_h,t.compact6,t.full_art,t.gray80,t.ix,t.imp2 = layout_of(cfg)
+  t.layout,t.stock6,t.recarm_y,t.label_h,t.compact6,t.full_art,t.gray80,t.ix,t.imp2,t.d34 = layout_of(cfg)
   if t.full_art or t.layout=='csixsx' then t.csix = csix_colors(cfg) end
   if t.layout=='frxst' then t.send_row_height = math.max(12,math.min(30,tonumber(cfg:match('set%s+mcp%.sendlist%.font%s+%[%s*%d+%s+(%d+)')) or 27)) end
   if t.layout=='mydaw' then
@@ -880,6 +938,11 @@ local function finish(t, cfg, inis)
     local function rgb(name,d) local r,g,b=cfg:match('\nset[ \t]+'..name..'[ \t]+%[(%d+)[ \t]+(%d+)[ \t]+(%d+)%]') return r and {tonumber(r),tonumber(g),tonumber(b)} or d end
     t.rt={green=rgb('PTGreen',{56,209,119}),input=rgb('PTrecinput',{203,203,203})}
     colors.col_tcp_textsel=named('col_tcp_textsel')
+  end
+  if t.layout=='default34' then
+    -- Lists are 14 pt rows (the art's three states of 14); labels are the theme's mixer face (Microsoft Sans Serif 11 px, which REAPER shows in a Helvetica-like substitute).
+    t.row_height,t.send_row_height = 14,14
+    t.font,t.fonts = 'Arial',{main={13},list={13.4},sends={13.4},header={14.5},bold={13}}
   end
   if t.layout=='realogix' then
     -- Lists are 17 pt rows (fxlist.font [4 17]). Faces from its .ReaperTheme: lists Verdana bold 9 px (user_font3), labels and values Verdana 9 px (user_font7),

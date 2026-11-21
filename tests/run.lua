@@ -2159,6 +2159,87 @@ test('Realogix: the script\'s 72 pt strip, racks kept at three rows by lowering 
   eq(assert(Theme.resolve(env.cache..'/changed',env)).layout,'generic')
 end)
 
+test('Default 3.0 and 4.0: the old stock strips, one layout on two geometries, racks kept at four rows, the master as the output strip', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  h.GetOS=function() return 'macOS-arm64' end
+  local Theme=dofile('inspector/theme.lua')
+  local home=os.getenv('HOME')..'/Library/Application Support/REAPER/ColorThemes/'
+  local env={cache=h.cache..'/default34',mkdir=function(p) os.execute('mkdir -p \"'..p..'\"') end}
+  local function box(hit,x,y,w,hh) assert(hit,'missing box');assert(math.abs(hit.x-x)<.01,hit.id..' x '..hit.x);assert(math.abs(hit.y-y)<.01,hit.id..' y '..hit.y);assert(math.abs(hit.w-w)<.01,hit.id..' w '..hit.w);assert(math.abs(hit.h-hh)<.01,hit.id..' h '..hit.h) end
+  local specs={
+    {n=3,w=72,h=806,edit=function(rt) return rt:gsub('mcp_vupeakheight 4','mcp_vupeakheight 5') end,optional={},
+     ref=function(k) -- the native strip (72 x 806 pt), balance pan: the measured rectangles
+       box(k.B_MUTE,31,432.5,19.5,20);box(k.I_SOLO,50.5,432.5,20,20);box(k.name,4,455,63,15);box(k.B_PHASE,50.5,472.5,20,20);box(k.IO,50.5,492.5,20,20);box(k.I_AUTOMODE,50.5,512.5,20,20)
+       box(k.FX,51.5,533.5,20,20);box(k.I_FXEN,50.5,553.5,20,12);box(k.I_RECARM,50.5,706.5,20,20);box(k.I_RECMON,50.5,726.5,20,20);box(k.I_RECMODE,50.5,746.5,20,20)
+       box(k.D_VOL,2.5,472.5,22,292.5);box(k.D_PAN,9.5,769,53.5,16) end},
+    -- (4.0's edit changes the first mute/solo rectangle, the default block's: the named layouts repeat it)
+    {n=4,w=73,h=818,edit=function(rt) return rt:gsub('set mcp%.solo %+ mcp_column_anchor %[0 21 17 18','set mcp.solo + mcp_column_anchor [0 22 17 18',1) end,optional={'I_RECMODE','I_AUTOMODE','B_PHASE'},
+     ref=function(k) -- the native strip (73 x 818 pt), balance pan: the script's rectangles at its 374 pt panel
+       box(k.B_MUTE,48,549,17,18);box(k.I_SOLO,48,570,17,18);box(k.I_RECMON,48,591,17,12);box(k.I_RECMODE,48,603,17,22);box(k.I_AUTOMODE,48,628,17,26);box(k.B_PHASE,49,657,15,16)
+       box(k.I_FXEN,3,447,23,14);box(k.FX,3,461,23,17);box(k.IO,30,447,39,31);box(k.D_PAN,4,509,30,30);box(k.D_VOL,9,563,17,228);box(k.I_RECARM,41,759,20,33) end},
+  }
+  for _,sp in ipairs(specs) do
+    local t=assert(Theme.resolve(home..'Default_'..sp.n..'.0.ReaperThemeZip',env));eq(t.layout,'default34');eq(t.d34,sp.n);eq(t.row_height,14)
+    eq(assert(Theme.resolve(home..'Default_'..sp.n..'.0.ReaperTheme',env)).layout,'default34')
+    local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),t,{output_strip=false})
+    local function at(w,hgt) g.ext_retina=2;g.w=w*2;g.h=hgt*2;g.blits={};g.calls={};v:frame() end
+    h.a.values.I_PANMODE=3;at(sp.w,sp.h);eq(#v.bitmaps.missing,0);sp.ref(v.hits)
+    -- Stereo pan is two controls, dual pan two others; balance is one.
+    h.a.values.I_PANMODE=5;at(sp.w,sp.h);assert(v.hits.D_PAN and v.hits.D_WIDTH and not v.hits.D_DUALPANL)
+    h.a.values.I_PANMODE=6;at(sp.w,sp.h);assert(v.hits.D_DUALPANL and v.hits.D_DUALPANR and not v.hits.D_PAN)
+    -- Heights, widths and pan modes: nothing overlaps or leaves the strip; the racks (four rows and a send), pan, name, mute, solo, arm and the fader stay.
+    for _,hgt in ipairs({340,409,454,600,sp.h,900}) do
+      for _,w in ipairs({86,96,120}) do
+        for _,mode in ipairs({3,5,6}) do
+          h.a.values.I_PANMODE=mode;at(w,hgt);local k=v.hits
+          local ids={'fx1','output','B_MUTE','I_SOLO','name','D_VOL','meter','I_RECARM','I_RECMON','FX','I_FXEN','IO'}
+          for _,id in ipairs(mode==6 and {'D_DUALPANL','D_DUALPANR'} or mode==5 and {'D_PAN','D_WIDTH'} or {'D_PAN'}) do ids[#ids+1]=id end
+          for _,id in ipairs(sp.optional) do if k[id] then ids[#ids+1]=id end end
+          local order={}
+          for _,id in ipairs(ids) do assert(k[id],id..' missing at '..w..'x'..hgt..' mode '..mode);order[#order+1]=k[id] end
+          assert(k.fx1.action and k.output.action)
+          assert(v.fx_box.rows+v.send_box.rows+1>=4,'racks keep four rows at '..hgt)
+          for i,a in ipairs(order) do
+            assert(a.x>=0 and a.x+a.w<=w+.01 and a.y>=0 and a.y+a.h<=hgt+.01,a.id..' leaves the strip at '..w..'x'..hgt)
+            for j=i+1,#order do local b=order[j]
+              if a.id~='meter' and b.id~='meter' and not (a.id=='D_VOL' or b.id=='D_VOL') then -- (the fader's hit box is its whole groove)
+                assert(a.x+a.w<=b.x+.01 or b.x+b.w<=a.x+.01 or a.y+a.h<=b.y+.01 or b.y+b.h<=a.y+.01,a.id..' overlaps '..b.id..' at '..w..'x'..hgt..' mode '..mode)
+              end
+            end
+          end
+          assert(k.D_VOL.h>=100,'fader too short at '..hgt)
+        end
+      end
+    end
+    -- Optional rows only come back as the strip grows (a taller strip never hides what a shorter one shows).
+    h.a.values.I_PANMODE=3
+    local kept=0;for _,hgt in ipairs({340,409,454,600,sp.h}) do at(86,hgt);local n=0;for _,id in ipairs({'I_RECMODE','I_AUTOMODE','B_PHASE','I_RECMON','FX','IO'}) do if v.hits[id] then n=n+1 end end;assert(n>=kept,'rows only come back as the strip grows');kept=n end
+    at(86,340);local short=v.hits.D_VOL.h;local b0=#h.writes;v.hits.fx1.action(8);assert(#h.writes>b0,'a rack row acts on a short strip')
+    at(86,sp.h);assert(v.hits.D_VOL.h>short,'the fader is shorter on a short strip')
+    -- The master as the output strip: no arm, monitor, record mode, phase or solo; a mono switch; FX, routing, mute, pan, fader, meter and its inserts.
+    v.options.output_strip=true;h.a.values.I_PANMODE=3
+    for _,hgt in ipairs({340,409,454,600,sp.h}) do
+      for _,w in ipairs({86,96,120}) do
+        at(w*2,hgt);local k=v.hits;local ids={'out:MONO','out:B_MUTE','out:D_VOL','out:D_PAN','out:FX','out:IO','out:fx1','out:meter'}
+        for _,id in ipairs({'I_RECARM','I_RECMON','I_RECMODE','B_PHASE','I_SOLO','name'}) do eq(k['out:'..id],nil) end
+        for i,id in ipairs(ids) do local a=k[id];assert(a,id..' missing at '..w..'x'..hgt);assert(a.x>=w-.01 and a.x+a.w<=w*2+.01 and a.y>=0 and a.y+a.h<=hgt+.01,id..' leaves its strip at '..w..'x'..hgt)
+          for j=i+1,#ids do local b=k[ids[j]];assert(b);if id~='out:meter' and ids[j]~='out:meter' and id~='out:D_VOL' and ids[j]~='out:D_VOL' then assert(a.x+a.w<=b.x+.01 or b.x+b.w<=a.x+.01 or a.y+a.h<=b.y+.01 or b.y+b.h<=a.y+.01,id..' overlaps '..ids[j]..' at '..w..'x'..hgt) end end end
+        assert(k['out:fx1'].action and k['out:D_VOL'].h>=100,'master keeps its rack and a fader at '..hgt)
+      end
+    end
+    -- Click through to the model.
+    v.options.output_strip=false;at(sp.w,sp.h)
+    local before=#h.writes
+    local hit=v.hits.I_SOLO;g.mouse_x=(hit.x+5)*2;g.mouse_y=(hit.y+5)*2;g.mouse_cap=1;v:frame();g.mouse_cap=0;v:frame()
+    eq(#h.writes,before+1);eq(h.writes[#h.writes][2],'I_SOLO')
+    -- Recognised by its own script: one changed statement or rectangle falls back to the generic strip.
+    local changed,n=sp.edit(t.rtconfig)
+    assert(n==1);os.execute('mkdir -p \"'..env.cache..'/changed'..sp.n..'\"')
+    local f2=assert(io.open(env.cache..'/changed'..sp.n..'/rtconfig.txt','w'));f2:write(changed);f2:close()
+    eq(assert(Theme.resolve(env.cache..'/changed'..sp.n,env)).layout,'generic')
+  end
+end)
+
 for _, t in ipairs(tests) do
   local ok, err = xpcall(t[2], debug.traceback)
   if ok then passed = passed + 1; print('PASS '..t[1]) else print('FAIL '..t[1]..'\n'..err) end
