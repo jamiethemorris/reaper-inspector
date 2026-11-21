@@ -343,6 +343,190 @@ local function horizon_of(cfg)
   end
   return true
 end
+-- ReaTools (Classic, Dark, DarkBlack): `drawMcp` and `drawMasterMcp`, one fixed 80 pt strip (the 200% layout's numbers halved) whose lower 607 pt is one
+-- printed background hung from the bottom, with the racks' box above it taking what is left. The three editions' mixer scripts are the same
+-- (their Theme Adjuster defaults, text colours and art differ; DarkBlack lacks one 100%-only statement, which the 200% layout does not use). Recognised by the exact statements the layout draws; anything changed falls back
+-- to the generic strip.
+local function reatools_of(cfg)
+  local script=' '..cfg:gsub(';[^\r\n]*',''):gsub('\\%s*[\r\n]',' '):gsub('%s+',' ')..' '
+  for _,s in ipairs({
+    'macro drawMcp scale',
+    'macro drawMasterMcp scale',
+    'set mcp.custom.mcpBgBox scale{0}==1 [3 18 73 331 0 0 0 1] scale{0}==2 [6.5 36 146 662.5 0 0 0 1]',
+    'set mcp.custom.mcpBgBox.color [0 0 0 0 10 10 10 96]',
+    'set mcp.custom.topline * scale [0 0 80 4]',
+    'set mcp.custom.sidebg_L scale{0}==1 [1 15 2 334 0 0 0 1] scale{0}==2 [2 30 5 669 0 0 0 1]',
+    'set mcp.size * scale [80 957 80 629]',
+    'set mcp.custom.fixline * scale [0 955 84 2 0 1 0 1]',
+    'set mcp.custom.colorlb * scale p8>=1 [0] [1 940 78 12 0 1 0 1]',
+    'set mcp.custom.colorlb2 * scale p8>=1 [0] [1 3 78 12]',
+    'set mcp.extmixer.mode [1]',
+    'set mcp.extmixer.position * scale [3 20 73 330 0 0 0 1]',
+    'set mcp.fxlist.font scale{0}==1 [1 18] scale{0}==2 [8 36]',
+    'set mcp.sendlist.font scale{0}==1 [1 18] scale{0}==2 [8 36]',
+    'set mcp.recinput scale{0}==1 [5 364 69 17 0 1 0 1] scale{0}==2 [10 728 138 36 0 1 0 1]',
+    'set mcp.recmode os_type==0 scale{0}==1 [5 382 57 17 0 1 0 1] scale{0}==2 [11 765 114 34 0 1 0 1]',
+    'set mcp.recmode os_type==3 scale{0}==1 [5 382 57 17 0 1 0 1] scale{0}==2 [11.5 765 114 34 0 1 0 1]',
+    'set mcp.recmode os_type==4 scale{0}==1 [5 382 57 17 0 1 0 1] scale{0}==2 [11.5 765 114 34 0 1 0 1]',
+    'set mcp.env scale{0}==1 [5 417 69 17 0 1 0 1] scale{0}==2 [10 834 138 34 0 1 0 1]',
+    'set mcp.fx scale{0}==1 [6 451 48 19 0 1 0 1] scale{0}==2 [12 903 96 38 0 1 0 1]',
+    'set mcp.fxin scale{0}==1 [62 382 12 17 0 1 0 1] scale{0}==2 [123 765 24 34 0 1 0 1]',
+    'set mcp.fxbyp scale{0}==1 [54 448 21 28 0 1 0 1] scale{0}==2 [108 897 42 56 0 1 0 1]',
+    'set mcp.custom.knobmn * scale trackpanmode<=3 [3 478 73 34 0 1 0 1] trackpanmode>=5 [0]',
+    'set mcp.custom.knobst * scale trackpanmode<=3 [0] trackpanmode>=5 [3 478 73 34 0 1 0 1]',
+    'set mcp.pan scale{0}==1 trackpanmode<=3 [17 473 46 46 0 1 0 1] trackpanmode>=5 [-1 473 46 46 0 1 0 1]',
+    'set mcp.pan scale{0}==2 trackpanmode<=3 [44 952 72 72 0 1 0 1] trackpanmode>=5 [8 952 72 72 0 1 0 1]',
+    'set mcp.custom.mnp scale{0}==2 os_type==0 trackpanmode<=3 [30 1050 36 18 0 1 0 1] trackpanmode==5 [0] trackpanmode==6 [0]',
+    'set mcp.custom.mnp scale{0}==2 os_type==3 trackpanmode<=3 [30 1048 36 18 0 1 0 1] trackpanmode==5 [0] trackpanmode==6 [0]',
+    'set mcp.pan.label * scale trackpanmode<=3 [41 519 32 14 0 1 0 1] trackpanmode==5 [9 519 32 14 0 1 0 1] trackpanmode==6 [9 519 32 14 0 1 0 1]',
+    'set mcp.width scale{0}==1 trackpanmode<=3 [0] trackpanmode>=5 [34 473 46 46 0 1 0 1]',
+    'set mcp.width scale{0}==2 trackpanmode<=3 [0] trackpanmode>=5 [78 952 72 72 0 1 0 1]',
+    'set mcp.width.label * scale trackpanmode<=3 [0] trackpanmode==5 [42 519 31 14 0 1 0 1] trackpanmode==6 [42 519 31 14 0 1 0 1]',
+    'set mcp.recmon * scale [9 542 28 20 0 1 0 1]',
+    'set mcp.recarm * scale [41 542 28 20 0 1 0 1]',
+    'set mcp.solo * scale [9 567 28 20 0 1 0 1]',
+    'set mcp.mute * scale [41 567 28 20 0 1 0 1]',
+    'set mcp.volume scale{0}==1 [11 593 29 235 0 1 0 1] scale{0}==2 [24 1188 56 470 0 1 0 1]',
+    'set mcp.volume.label * scale [5 831 41 15 0 1 0 1]',
+    'set mcp.meter * scale p4>0 [57 592 17 233 0 1 0 1] [57 592 13 233 0 1 0 1] ?recarm p10>=1 [42 592 32 233 0 1 0 1] [0]',
+    'set mcp.phase * scale [22 842 31 26 0 1 0 1]',
+    'set mcp.label * scale [4 869 73 15 0 1 0 1]',
+    'set mcp.trackidx * scale [0 349 80 607 0 1 0 1]',
+    'set mcp.io * scale [8 906 60 26 0 1 0 1]',
+    'set master.mcp.custom.coloridxbg scale{0}==1 [0 15 80 942 0 0 0 1] scale{0}==2 [0 30 160 1883 0 0 0 1]',
+    'set master.mcp.custom.idx * scale [0 350 80 609 0 1 0 1]',
+    'set master.mcp.custom.label2 * scale [0 942 79 13 0 1 0 1]',
+    'set master.mcp.size * scale [80 959 80 629]',
+    'set master.mcp.extmixer.position * scale [3 20 73 325 0 0 0 1]',
+    'set master.mcp.menubutton * scale [5 365 69 17 0 1 0 1]',
+    'set master.mcp.mono * scale [6 383 68 17 0 1 0 1]',
+    'set master.mcp.env scale{0}==1 [5 418 69 17 0 1 0 1] scale{0}==2 [11 835 138 34 0 1 0 1]',
+    'set master.mcp.fx scale{0}==1 [6 451 48 19 0 1 0 1] scale{0}==2 [12 903 96 38 0 1 0 1]',
+    'set master.mcp.fxbyp scale{0}==1 [54 448 21 28 0 1 0 1] scale{0}==2 [108 897 42 56 0 1 0 1]',
+    'set master.mcp.solo * scale [9 568 28 20 0 1 0 1]',
+    'set master.mcp.mute * scale [41 568 28 20 0 1 0 1]',
+    'set master.mcp.volume * scale [2 595 29 235 0 1 0 1]',
+    'set master.mcp.volume.label * scale [5 834 41 15 0 1 0 1]',
+    'set master.mcp.meter * scale [31 594 39 234 0 1 0 1]',
+    'set master.mcp.label * scale [3 869 73 17 0 1 0 1]',
+    'set master.mcp.io * scale [9 906 60 27 0 1 0 1]',
+    'set master.mcp.meter p5>=1 * scale [28 594 45 234 0 1 0 1]',
+    'drawMcp 2.0',
+    'drawMasterMcp 2.0',
+  }) do
+    if not script:find(' '..s..' ',1,true) then return false end
+  end
+  return true
+end
+-- paRt (Dark, Dimmed, Light): `MAC_DrawMcp` and its helper macros, one script for every display scale and strip width (the layout follows the 200% numbers
+-- the screenshot shows, at the script's default Theme Adjuster values). The editions share the whole script and differ only in their `THEME_color_*`
+-- constants, which finish() reads. Recognised by the statements below; anything changed falls back to the generic strip.
+local function part_of(cfg)
+  local script=' '..cfg:gsub(';[^\r\n]*',''):gsub('\\%s*[\r\n]',' '):gsub('%s+',' ')..' '
+  for _,s in ipairs({
+    'set VAL_Unit SCALE>2 2 SCALE>1 2 1',
+    'set VAL_Pad SCALE>=2 6 SCALE>1 4 2',
+    'set VAL_Border SCALE>=2.5 2 SCALE>=2 2 1',
+    'set VAL_Button SCALE>=2.5 [45 35] SCALE>=2.25 [41 32] SCALE>=2 [36 28] SCALE>=1.75 [32 25] SCALE>=1.5 [27 21] SCALE>=1.25 [23 18] [18 14]',
+    'set VAL_Knob SCALE>=2.5 45 SCALE>=2.25 41 SCALE>=2 36 SCALE>=1.75 32 SCALE>=1.5 27 SCALE>=1.25 23 18',
+    'set VAL_MCP_Label SCALE>=2.5 35 SCALE>=2.25 32 SCALE>=2 28 SCALE>=1.75 24 SCALE>=1.5 21 SCALE>=1.25 18 14',
+    'set VAL_insert_slot SCALE>=2.5 42 SCALE>=2.25 38 SCALE>=2 34 SCALE>=1.75 31 SCALE>=1.5 26 SCALE>=1.25 21 16',
+    'set VAL_Fader SCALE>=2.5 [31 7 25 5] SCALE>=2.25 [29 6 22 4] SCALE>=2 [24 6 20 4] SCALE>=1.75 [22 6 18 3] SCALE>=1.5 [19 4 15 3] SCALE>=1.25 [17 3 13 2] [12 3 10 2]',
+    'set VAL_mcp_inserts_min_h + VAL_rounding_constant{0} - * SCALE 30 VAL_rounding_constant{0}',
+    'set VAL_mcp_w_button_slim + VAL_Unit{0} VAL_Button{0}',
+    'set VAL_mcp_w_button_wide + VAL_Unit{0} + * 2 VAL_Button{0} VAL_mcp_spacing_x{0}',
+    'set VAL_mcp_w_button_large + VAL_Unit{0} + * 4 VAL_Button{0} * 3 VAL_mcp_spacing_x{0}',
+    'MAC_DrawMcp_Setup_Track SCALE "mcp" "track"',
+    'MAC_DrawMcp_Label_Track SCALE "mcp" "track"',
+    'MAC_DrawMcp_Inserts SCALE "mcp" "track"',
+    'MAC_DrawMcp_Buttons_Track SCALE "mcp" "track"',
+    'MAC_DrawMcp_Meter_Top SCALE "mcp" "track"',
+    'MAC_DrawMcp_Faders_Top SCALE "mcp" "track"',
+    'MAC_DrawMcp_Meter_Bottom SCALE "mcp" "track"',
+    'MAC_DrawMcp_Meter_Format_Track SCALE "mcp" "track"',
+    'MAC_DrawMcp_Faders_Bottom SCALE "mcp" "track"',
+    'MAC_DrawMcp_Size SCALE "mcp" "track"',
+    'MAC_DrawMcp_Setup_Master SCALE "master.mcp" "master"',
+    'MAC_DrawMcp_Label_Master SCALE "master.mcp" "master"',
+    'MAC_DrawMcp_Inserts SCALE "master.mcp" "master"',
+    'MAC_DrawMcp_PostInsert_Master SCALE "master.mcp" "master"',
+    'MAC_DrawMcp_Buttons_Master SCALE "master.mcp" "master"',
+    'MAC_DrawMcp_Meter_Top SCALE "master.mcp" "master"',
+    'MAC_DrawMcp_Faders_Top SCALE "master.mcp" "master"',
+    'MAC_DrawMcp_Meter_Bottom SCALE "master.mcp" "master"',
+    'MAC_DrawMcp_Meter_Format_Master SCALE "master.mcp" "master"',
+    'MAC_DrawMcp_Faders_Bottom SCALE "master.mcp" "master"',
+    'MAC_DrawMcp_Size SCALE "master.mcp" "master"',
+    'set VAL_mcp_h 400',
+    'MAC_DrawMcp_Buttons_SingleButton SCALE 4 WALTER_ELEMENT PARAMETER_SECTION "recmode" CUR_Linebreak',
+    'MAC_DrawMcp_Buttons_SingleButton SCALE 8 WALTER_ELEMENT PARAMETER_SECTION "fxin" CUR_Linebreak',
+    'MAC_DrawMcp_Buttons_SingleButton SCALE 16 WALTER_ELEMENT PARAMETER_SECTION "fx" 1',
+    'MAC_DrawMcp_Buttons_SingleButton SCALE 32 WALTER_ELEMENT PARAMETER_SECTION "io" CUR_Linebreak',
+    'MAC_DrawMcp_Buttons_SingleButton SCALE 64 WALTER_ELEMENT PARAMETER_SECTION "phase" CUR_Linebreak',
+    'MAC_DrawMcp_Buttons_SingleButton SCALE 128 WALTER_ELEMENT PARAMETER_SECTION "mute" CUR_Linebreak',
+    'MAC_DrawMcp_Buttons_SingleButton SCALE 256 WALTER_ELEMENT PARAMETER_SECTION "solo" 1',
+    'MAC_DrawMcp_Buttons_SingleButton SCALE 512 WALTER_ELEMENT PARAMETER_SECTION "recarm" CUR_Linebreak',
+    'MAC_DrawMcp_Buttons_SingleButton SCALE 1024 WALTER_ELEMENT PARAMETER_SECTION "recmon" CUR_Linebreak',
+    'MAC_DrawMcp_Buttons_SingleButton SCALE 2048 WALTER_ELEMENT PARAMETER_SECTION "env" 1',
+    'MAC_DrawMcp_Buttons_SingleButton SCALE 2 WALTER_ELEMENT PARAMETER_SECTION "fx" CUR_Linebreak',
+    'MAC_DrawMcp_Buttons_SingleButton SCALE 4 WALTER_ELEMENT PARAMETER_SECTION "io" CUR_Linebreak',
+    'MAC_DrawMcp_Buttons_SingleButton SCALE 8 WALTER_ELEMENT PARAMETER_SECTION "mono" 1',
+    'MAC_DrawMcp_Buttons_SingleButton SCALE 16 WALTER_ELEMENT PARAMETER_SECTION "mute" CUR_Linebreak',
+    'MAC_DrawMcp_Buttons_SingleButton SCALE 32 WALTER_ELEMENT PARAMETER_SECTION "solo" CUR_Linebreak',
+    'MAC_DrawMcp_Buttons_SingleButton SCALE 64 WALTER_ELEMENT PARAMETER_SECTION "env" 1',
+    'macro MAC_DrawMcp SCALE',
+  }) do
+    if not script:find(' '..s..' ',1,true) then return false end
+  end
+  return true
+end
+-- Realogix (a Logic-style theme): a flat mixer script, one fixed 72 pt strip (115 pt master) of design height 902 (973) whose rectangles hang from the bottom,
+-- with the racks' box hung from the top; the height thresholds h1-h14 (and the pan mode) decide what shows. Not a Default 6/7 derivative (no
+-- shared macros or section rectangles), so it is recognised by the statements that place its blocks and colour its text.
+local function realogix_of(cfg)
+  local script=' '..cfg:gsub(';[^\\r\\n]*',''):gsub('\\\\%s*[\\r\\n]',' '):gsub('%s+',' ')..' '
+  for _,s in ipairs({
+    'set h1 339', 'set h2 363', 'set h3 389', 'set h4 414', 'set h5 mcp_wantextmix>1 423 421', 'set h6 464', 'set h7 505', 'set h8 563', 'set h13 723', 'set h14 800',
+    'set h9 555', 'set h10 587', 'set h11 622', 'set h12 652', 'set sends_offs mcp_wantextmix>1 70 0', 'set pan_mode h>h14{0} 2 trackpanmode>4 1 0',
+    'set pan_offs pan_mode{0}==2 60 0', 'set mcp.size [72 902]', 'set mcp.trackidx + [-1 880 73 20 0 1 0 1] folder_offs', 'set mcp.label [5 859 64 18 0 1 0 1]',
+    'set mcp.label.margin [5 0 5 0 0.5]', 'set mcp.label.color ?recarm [207 95 95] [160 160 160]', 'set mcp.mute [6 837 31 23 0 1 0 1]', 'set mcp.solo [36 837 31 23 0 1 0 1]',
+    'set mcp.recarm [47 806 33 23 0 1 0 1]', 'set mcp.recmon [33 810 15 18 0 1 0 1]', 'set mcp.meter + [45 658 20 144 0 1 0 1] inf_offs',
+    'set mcp.volume - [2 650 29 181 0 1 0 1] / [p5{0}] 2', 'set mcp.volume.label h>h4{0} [8 621 72 42 0 1 0 1]', 'set mcp.volume.label.color ?track_selected [22 22 22] [17 17 17]',
+    'set mcp.phase h>h4{0} [44 633 22 20 0 1 0 1]', 'set mcp.pan h>330 [21 596 31 31 0 1 0 1]', 'set mcp.pan h>h4{0} [21 572 31 31 0 1 0 1]',
+    'set mcp.pan h>h0{0} pan_mode{0}==1 [1 592 72 19 0 1 0 1]', 'set mcp.pan h>h4{0} pan_mode{0}==1 [1 567 72 19 0 1 0 1]', 'set mcp.pan pan_mode{0}==2 - mcp.pan [10]',
+    'set mcp.pan.label h>h0{0} [6 633 61 18 0 1 0 1]', 'set mcp.pan.label h>h4{0} [6 609 61 18 0 1 0 1]', 'set mcp.pan.label.color [91 181 54]',
+    'set mcp.width h>h4{0} [32 536 31 31 0 1 0 1]', 'set mcp.width h>328 pan_mode{0}==1 [1 612 72 19 0 1 0 1]', 'set mcp.width h>h4{0} pan_mode{0}==1 [1 587 72 19 0 1 0 1]',
+    'set mcp.width pan_mode{0}==0 [0]', 'set mcp.width.label h>394 [5 532 63 18 0 1 0 1]', 'set mcp.width.label h>h4{0} [5 507 63 18 0 1 0 1]',
+    'set mcp.width.label.color [198 176 64]', 'set mcp.width.label pan_mode{0}<1 [0]',
+    'set mcp.recinput h>h0{0} [6 633 61 18 0 1 0 1]', 'set mcp.recinput h>h4{0} [6 609 61 18 0 1 0 1]', 'set mcp.recinput h>h13{0} [5 470 62 18 0 1 0 1]',
+    'set mcp.recinput h>h14{0} [5 403 62 18 0 1 0 1]', 'set mcp.recinput.color [102 165 215]', 'set mcp.recinput !recarm h<=h13{0} [0]',
+    'set mcp.fxin h>h0{0} [55 633 16 19 0 1 0 1]', 'set mcp.fxin h>h4{0} [55 609 16 19 0 1 0 1]', 'set mcp.fxin h>h14{0} [55 403 16 19 0 1 0 1]', 'set mcp.fxin !recarm h<h14{0} [0]',
+    'set mcp.io h>h1{0} [5 567 70 18 0 1 0 1]', 'set mcp.io h>h4{0} [5 543 70 18 0 1 0 1]', 'set mcp.io h>h5{0} [0]', 'set mcp.io h>h7{0} [5 542 70 18 0 1 0 1]', 'set mcp.io h>h14{0} [5 541 70 18 0 1 0 1]',
+    'set mcp.env h>h2{0} [5 543 70 18 0 1 0 1]', 'set mcp.env h>h4{0} [5 518 70 18 0 1 0 1]', 'set mcp.env h>h5{0} [0]', 'set mcp.env h>h6{0} [5 542 70 18 0 1 0 1]',
+    'set mcp.env h>h7{0} [5 518 70 18 0 1 0 1]', 'set mcp.env h>h14{0} [5 515 70 18 0 1 0 1]',
+    'set mcp.fx h>h3{0} [5 519 70 18 0 1 0 1]', 'set mcp.fx h>h4{0} [5 493 70 18 0 1 0 1]', 'set mcp.fx h>h5{0} [0]', 'set mcp.fx h>h8{0} [5 494 70 18 0 1 0 1]', 'set mcp.fx h>h14{0} [5 489 70 18 0 1 0 1]',
+    'set mcp.fxbyp h>h3{0} [54 519 14 18 0 1 0 1]', 'set mcp.fxbyp h>h4{0} [54 493 14 18 0 1 0 1]', 'set mcp.fxbyp h>h5{0} [0]', 'set mcp.fxbyp h>h8{0} [54 494 14 18 0 1 0 1]', 'set mcp.fxbyp h>h14{0} [54 489 14 18 0 1 0 1]',
+    'set mcp.extmixer.mode [1]', 'set mcp.extmixer.position h>h5{0} [5 10 64 549 0 0 0 1]', 'set mcp.extmixer.position h>h6{0} [5 10 64 525 0 0 0 1]',
+    'set mcp.extmixer.position h>h7{0} [5 10 64 501 0 0 0 1]', 'set mcp.extmixer.position h>h8{0} [5 10 64 477 0 0 0 1]', 'set mcp.extmixer.position h>h13{0} [5 10 64 453 0 0 0 1]',
+    'set mcp.extmixer.position h>h14{0} [5 10 64 445 0 0 0 1]', 'set mcp.io - mcp.io pan_offs@y', 'set mcp.env - mcp.env pan_offs@y', 'set mcp.fx - mcp.fx pan_offs@y',
+    'set mcp.fxbyp - mcp.fxbyp pan_offs@y', 'set mcp.extmixer.position - mcp.extmixer.position pan_offs@h', 'set mcp.fxlist.margin [6 0 5 0 0.5]', 'set mcp.fxlist.font [4 17 0 0 2]',
+    'set mcp.sendlist.margin [5 0 5 0]', 'set mcp.sendlist.font [4 17 0 0 2]',
+    'set master.mcp.size [115 973]', 'set master.mcp.mute [09 921 31 23 0 1 0 1]', 'set master.mcp.mono [39 921 37 23 0 1 0 1]', 'set master.mcp.solo [75 921 31 23 0 1 0 1]',
+    'set master.mcp.volume [8 885 100 23 0 1 0 1]', 'set master.mcp.volume.label [7 862 101 21 0 1 0 1]', 'set master.mcp.volume.label.color [102 165 215]',
+    'set master.mcp.meter [8 654 99 194 0 1 0 1]', 'set master.mcp.menubutton h<364 mcp_iconsize=0 [7 620 108 18 0 1 0 1]', 'set master.mcp.menubutton h>h2{0} [0]',
+    'set master.mcp.menubutton h>h6{0} [7 623 108 18 0 1 0 1]', 'set master.mcp.pan.label h>h9{0} [7 594 101 19 0 1 0 1]', 'set master.mcp.pan.label.color [91 181 54]',
+    'set master.mcp.pan h>h9{0} [43 544 31 31 0 1 0 1]', 'set master.mcp.io h>h1{0} [7 622 108 18 0 1 0 1]', 'set master.mcp.io h>h4{0} [7 597 108 18 0 1 0 1]', 'set master.mcp.io h>h4{0} [0]',
+    'set master.mcp.io h>h11{0} [7 507 108 18 0 1 0 1]', 'set master.mcp.env h>379 [7 598 108 18 0 1 0 1]', 'set master.mcp.env h>h4{0} [0]', 'set master.mcp.env h>h10{0} [7 507 108 18 0 1 0 1]',
+    'set master.mcp.env h>h11{0} [7 481 108 18 0 1 0 1]', 'set master.mcp.fx h>405 [7 574 108 18 0 1 0 1]', 'set master.mcp.fx h>h4{0} [7 547 108 18 0 1 0 1]', 'set master.mcp.fx h>h4{0} [0]',
+    'set master.mcp.fx h>h12{0} [7 455 108 18 0 1 0 1]', 'set master.mcp.fxbyp h>405 [88 574 19 18 0 1 0 1]', 'set master.mcp.fxbyp h>h4{0} [88 547 19 18 0 1 0 1]', 'set master.mcp.fxbyp h>h4{0} [0]',
+    'set master.mcp.fxbyp h>h12{0} [88 455 19 18 0 1 0 1]', 'set master.mcp.extmixer.position h>h4{0} [6 10 104 632 0 0 0 1]', 'set master.mcp.extmixer.position h>h6{0} [6 10 104 604 0 0 0 1]',
+    'set master.mcp.extmixer.position h>h9{0} [6 10 104 520 0 0 0 1]', 'set master.mcp.extmixer.position h>h10{0} [6 10 104 488 0 0 0 1]', 'set master.mcp.extmixer.position h>h11{0} [6 10 104 463 0 0 0 1]',
+    'set master.mcp.extmixer.position h>h12{0} [6 10 104 437 0 0 0 1]', 'set master.mcp.fxlist.margin [6 0 5 0 0.5]', 'set master.mcp.sendlist.margin [5 0 5 0]',
+  }) do
+    if not script:find(' '..s..' ',1,true) then return false end
+  end
+  return true
+end
 -- WT Imperial V5 (default mixer layout): `draw_mcp` and `draw_mcp_master` in a fixed 94 pt strip (118 pt master) of design size 874: a 400 pt group
 -- (name, solo, fader, polarity/mute, number) hung from the bottom and blocks stacked from the top (meter and input panel, automation, FX, the racks'
 -- box, record mode, record arm and monitor, pan), which the script drops in a fixed order when the racks' box would be too small. Recognised by the
@@ -603,6 +787,9 @@ local function layout_of(cfg)
   end
   if cfg:find('macro%s+drawMcp%s+scale%s+Layout') and nvk_of(cfg) then return 'nvk' end
   if cfg:find('macro%s+drawMcp%s+scale%s+layout%s+alt') and horizon_of(cfg) then return 'horizon' end
+  if cfg:find('macro%s+drawMcp%s+scale%s') and reatools_of(cfg) then return 'reatools' end
+  if cfg:find('macro%s+MAC_DrawMcp%s') and part_of(cfg) then return 'part' end
+  if not cfg:find('macro%s+draw') and cfg:find('set mcp.size [72 902]',1,true) and realogix_of(cfg) then return 'realogix' end
   if cfg:find('macro%s+draw_mcp%s') and imperial_of(cfg) then return 'imperial' end
   local old=not cfg:find('macro%s+draw_mcp') and imperial_old_of(cfg)
   if old then return 'imperial2',nil,nil,nil,nil,nil,nil,nil,old end
@@ -683,6 +870,33 @@ local function finish(t, cfg, inis)
     t.row_height=t.imp2=='lcs' and 12 or 14;t.send_row_height=t.row_height
     t.font,t.fonts = 'Tahoma',{main={11.4},list={11.4},sends={11.4},header={13.9,false,'Arial'},bold={13.6,true,'Arial'}}
     if t.imp2=='lcs' then t.fonts.list,t.fonts.sends={13.9,true,'Arial'},{13.9,true,'Arial'} end -- its lists use font #2, Arial bold
+  end
+  if t.layout=='reatools' then
+    -- Lists are 18 pt rows (fxlist.font [8 36]); every mixer label is Arial bold: user_font7 (16 px) for lists, pan and value text and the track number,
+    -- user_font9/10 (21 px) for the name and the input field (gfx sizes that render as large as the mixer's: about 0.63 of the pixel size at 2x).
+    t.row_height,t.send_row_height = 18,18
+    t.font,t.fonts = 'Arial',{main={10.1,true},list={10.1,true},sends={10.1,true},header={13.3,true},bold={10.1,true}}
+    -- The edition's green (readouts, pan text, track number) and input-field ink: the uncommented `set` lines of its script.
+    local function rgb(name,d) local r,g,b=cfg:match('\nset[ \t]+'..name..'[ \t]+%[(%d+)[ \t]+(%d+)[ \t]+(%d+)%]') return r and {tonumber(r),tonumber(g),tonumber(b)} or d end
+    t.rt={green=rgb('PTGreen',{56,209,119}),input=rgb('PTrecinput',{203,203,203})}
+    colors.col_tcp_textsel=named('col_tcp_textsel')
+  end
+  if t.layout=='realogix' then
+    -- Lists are 17 pt rows (fxlist.font [4 17]). Faces from its .ReaperTheme: lists Verdana bold 9 px (user_font3), labels and values Verdana 9 px (user_font7),
+    -- the name Calibri bold 12 px (user_font2; the native screenshot shows a regular sans, so Arial regular here), the number Verdana bold 11 px (user_font4): gfx sizes 1.27 x the pixel em.
+    t.row_height,t.send_row_height = 17,17
+    t.font,t.fonts = 'Verdana',{main={11.4},list={11.4,true},sends={11.4,true},header={15.6,false,'Arial'},bold={13.9,true}}
+  end
+  if t.layout=='part' then
+    -- Lists are 17 pt rows (insert slot 34 px); every mixer label is Tahoma regular, user_font7 (24 px, an em of 12 pt: a gfx size of about 15).
+    t.row_height,t.send_row_height = 17,17
+    t.font,t.fonts = 'Tahoma',{main={15.2},list={15.2},sends={15.2},header={15.2},bold={11.7}} -- (`bold` is the meter's scale: its numbers are a third smaller than the labels')
+    -- The editions differ only in these constants of their script (`set THEME_color_x [r g b ...]`) and the zero-line colour of their sliders.
+    local function nums(name) local body=cfg:match('\nset[ \t]+THEME_color_'..name..'[ \t]+%[([^%]]*)%]') if not body then return nil end local o={} for n in body:gmatch('%-?%d+') do o[#o+1]=tonumber(n) end return o end
+    t.pt={}
+    for _,k in ipairs({'track_neutral','track_frame','mcp_empty_space','track_bg','track_label_bg','track_label_text','select_bar','master_icon_bg','readout_font','button_text_off'}) do t.pt[k]=nums(k) end
+    local a,rgb=cfg:match('\nmcp_pan_zeroline[ \t]+(%x%x)(%x%x%x%x%x%x)')
+    t.pt.zero=a and {tonumber(rgb:sub(1,2),16),tonumber(rgb:sub(3,4),16),tonumber(rgb:sub(5,6),16),tonumber(a,16)} or {255,255,255,96}
   end
   if t.layout=='csixsx' then
     -- Its 200% fonts: Roboto 10 pt for labels and input, 15 pt for the name; Roboto Condensed regular 12 pt for the volume
@@ -819,7 +1033,7 @@ function M.asset(t,name,density)
     if t.zip then
       local entry = t.zip.entries[(t.prefix..(v[1] ~= '' and v[1]..'/' or '')..name..'.png'):lower()]
       if entry then
-        local path = join(t.dir,(v[1] ~= '' and v[1]..'_' or '')..name..'.png')
+        local path = join(t.dir,(v[1] ~= '' and v[1]..'_' or '')..(name:gsub('/','__'))..'.png') -- a name may carry a folder (`ci/...`)
         local found = describe(path,v[2])
         if not found then
           local data = Unzip.read(t.zip, entry.name)
