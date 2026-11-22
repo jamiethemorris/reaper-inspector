@@ -274,6 +274,9 @@ def main():
     ap.add_argument('--target', default='main', help="output strip target: main, send (first send) or off")
     ap.add_argument('--set', action='append', default=[], help='scenario override key=python-literal')
     ap.add_argument('--full-artwork', action='store_true', help='the experimental full theme artwork toggle')
+    ap.add_argument('--stock', nargs='?', const='', default=None, metavar='BASE',
+                    help='borrow the stock Default 7 for an unrecognised or unloadable theme; BASE is its path without extension '
+                         '(default: ColorThemes/Default_7.0 in the REAPER resource folder)')
     a = ap.parse_args()
     sc = dict(SCENARIOS[a.scenario])
     for item in a.set:
@@ -284,12 +287,14 @@ def main():
         mx, my = (float(v) for v in a.mouse.split(','))
         g.t['mouse_x'], g.t['mouse_y'] = mx * a.scale, my * a.scale
     r = host(lua, sc)
-    run = lua.eval('''function(root, r, g, theme_path, out, live, full)
+    run = lua.eval('''function(root, r, g, theme_path, out, live, full, stock)
       local Theme, Model, View = dofile(root..'/inspector/theme.lua'), dofile(root..'/inspector/model.lua'), dofile(root..'/inspector/view.lua')
       local home = os.getenv('HOME')
       theme_path = theme_path or home..'/Library/Application Support/REAPER/ColorThemes/Reapertips Theme_Custom2.ReaperTheme'
       local cache = (os.getenv('TMPDIR') or '/tmp'):gsub('/+$', '')..'/reaper-inspector-preview'
-      local theme, err = Theme.resolve(theme_path, {cache = cache, mkdir = function(p) os.execute('mkdir -p "' .. p .. '"') end})
+      local env = {cache = cache, mkdir = function(p) os.execute('mkdir -p "' .. p .. '"') end}
+      if stock then env.stock = stock ~= '' and stock or home..'/Library/Application Support/REAPER/ColorThemes/Default_7.0'; env.own_art = full end
+      local theme, err = Theme.resolve(theme_path, env)
       assert(theme, err)
       if live then theme.live = {}; for k, v in live:gmatch('([^=,]+)=(%-?%d+)') do theme.live[k] = tonumber(v) end end
       local view = View.new(r, g, Model.new(r), theme, {output_strip = out ~= 'off', full_theme_artwork = full})
@@ -297,7 +302,7 @@ def main():
       if out == 'send' then view.choice[view.snapshot.guid] = 'BUS'; view:frame() end
       return view.bitmaps and table.concat(view.bitmaps.missing, ',') or ''
     end''')
-    missing = run(ROOT, r, g.t, a.theme, a.target, a.live, a.full_artwork)
+    missing = run(ROOT, r, g.t, a.theme, a.target, a.live, a.full_artwork, a.stock)
     g.fb.convert('RGB').save(a.out)
     print('wrote', a.out, g.fb.size, 'missing:', missing or '-')
 

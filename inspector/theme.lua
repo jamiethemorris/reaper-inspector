@@ -973,6 +973,12 @@ local function finish(t, cfg, inis)
     -- Lists are 14 pt rows (the art's three states of 14); labels are the theme's mixer face (Microsoft Sans Serif 11 px, which REAPER shows in a Helvetica-like substitute).
     t.row_height,t.send_row_height = 14,14
     t.font,t.fonts = 'Arial',{main={13},list={13.4},sends={13.4},header={14.5},bold={13}}
+    -- 4.0's pan, volume and number text measures 9% narrower in the native strip than at 13 ("center" 57 px against 63 at 2 px/pt), which
+    -- put the label's first letter 3 pt nearer the knob; 3.0's text was not measured.
+    if t.d34==4 then t.fonts.main={11.8} end
+    -- The MIDI-output send (the user's 'iConnectivity - mio') is what these screenshots show: neither theme ships mcp_sendlist_midihw art, so REAPER wears the normal send art;
+    -- 4.0 names a midihw text colour, 3.0 names none and its native row reads in its normal send colour (dark), not the generic blue.
+    if not named('mcp_send_midihw') then colors.mcp_send_midihw=colors.mcp_sends_normal end
   end
   if t.layout=='realogix' then
     -- Lists are 17 pt rows (fxlist.font [4 17]). Faces from its .ReaperTheme: lists Verdana bold 9 px (user_font3), labels and values Verdana 9 px (user_font7),
@@ -1098,7 +1104,7 @@ local function resolve_zip(path, zip_path, outer, env)
   env.mkdir(dir)
   return finish({source=path, dir=dir, zip=zip, prefix=prefix}, cfg, {outer or '', inner or ''})
 end
-function M.resolve(path, env)
+local function resolve_path(path, env)
   if type(path) ~= 'string' or path == '' or path:find('[\r\n%z]') then return nil, 'Invalid theme path' end
   path = unquote(path):gsub('[/\\]+$', '')
   if is_zip(path) then return resolve_zip(path, path, nil, env) end
@@ -1117,6 +1123,20 @@ function M.resolve(path, env)
   local cfg = read(join(dir,'rtconfig.txt'))
   if not cfg then return nil, 'Choose a theme file, a theme archive or an asset folder containing rtconfig.txt' end
   return finish({source=path, dir=dir}, cfg, {ini or ''})
+end
+-- A theme with no layout of its own (or none that can be loaded at all, e.g. REAPER's built-in look) borrows REAPER's installed
+-- stock Default 7: that layout with that theme's own artwork, read in place. env.stock is its path without extension (the archive
+-- first, then the .ReaperTheme beside it); it must itself be recognised as Default 7, else nothing changes. env.own_art keeps a
+-- loadable theme's own artwork instead (the experimental checkbox). resolve_path never borrows, so there is no recursion.
+function M.resolve(path, env)
+  local t, err = resolve_path(path, env)
+  if not (env and env.stock) or err == 'Invalid theme path' then return t, err end
+  if t and (t.layout ~= 'generic' or t.full_art or env.own_art) then return t, err end
+  for _, ext in ipairs({'.ReaperThemeZip', '.ReaperTheme'}) do
+    local s = resolve_path(env.stock..ext, env)
+    if s and s.layout == 'default7' then s.borrowed, s.borrowed_for, s.unloadable = true, path, not t and err or nil; return s end
+  end
+  return t, err
 end
 local function describe(path, scale)
   local s = read(path,24)

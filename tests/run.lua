@@ -19,6 +19,15 @@ local function flat_generic(h)
   end
   f:close();return dir
 end
+-- A host whose REAPER resource folder has no stock Default 7 to borrow (and a private cache), so a theme without a layout
+-- stays the plain generic strip. The tests' own themes are all given by absolute path.
+local function without_stock(h) h.GetResourcePath=function() return h.cache..'/no-reaper' end end
+-- The reverse: a private resource folder (so nothing is cached in the real one) whose stock Default 7 is a link to the installed one.
+local function with_stock(h)
+  local real,res=h.GetResourcePath(),h.cache..'/stock-reaper'
+  assert(os.execute('mkdir -p "'..res..'/ColorThemes" && ln -sf "'..real..'/ColorThemes/Default_7.0.ReaperThemeZip" "'..res..'/ColorThemes/"'))
+  h.real_res=real;h.GetResourcePath=function() return res end
+end
 
 test('theme resolves installed ui_img and reads real PNG dimensions', function()
   local Theme = dofile(root..'inspector/theme.lua')
@@ -348,7 +357,7 @@ end)
 test('experimental artwork menu can preview and restore generic artwork without changing layout', function()
   local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
   local App=dofile('inspector/app.lua')
-  h.theme_file=flat_generic(h)
+  h.theme_file=flat_generic(h);local res=h.GetResourcePath();without_stock(h)
   local app=App.new(h,g);assert(app:start());app:frame()
   local v=app.view;eq(v.theme.layout,'generic')
   assert(not v.bitmaps.cache.mcp_volthumb)
@@ -362,7 +371,7 @@ test('experimental artwork menu can preview and restore generic artwork without 
   assert(not again.view.bitmaps.cache.mcp_volthumb);again:stop();eq(#h.writes,0)
   -- CSIX-BASIC is recognised by its mixer script: generic arrangement, own artwork, no switch needed.
   -- Its pan knob face is a stack of frames, drawn instead of a generated line.
-  h.theme_file=h.GetResourcePath()..'/ColorThemes/CSIX-BASIC.ReaperThemeZip'
+  h.theme_file=res..'/ColorThemes/CSIX-BASIC.ReaperThemeZip'
   local csix=App.new(h,g);assert(csix:start())
   local pointers=0;csix.view.pointer=function() pointers=pointers+1 end
   g.blits={};csix:frame()
@@ -383,8 +392,9 @@ end)
 test('CSIX strips read their edition\'s text colours and match the mixer at the record tab, readout and footer', function()
   local fake=dofile('tests/synthetic.lua')
   local App,Theme=dofile('inspector/app.lua'),dofile('inspector/theme.lua')
-  local function open(file)
+  local function open(file,bare)
     local h,g=fake.host(),fake.gfx();h.theme_file=file:find('^/') and file or h.GetResourcePath()..'/ColorThemes/'..file
+    if bare then without_stock(h) end
     local app=App.new(h,g);assert(app:start());app:frame();return app,h,g
   end
   local function rgb(c) return c and table.concat(c,',') end
@@ -403,7 +413,7 @@ test('CSIX strips read their edition\'s text colours and match the mixer at the 
   assert(shown(g,100,200,255)>0,'peak readout uses the edition colour');assert(shown(g,235,255,255)>0,'selected name colour')
   assert(app.view.bitmaps.cache.mcp_vol_label,'the readout box art is drawn');assert(app.view.bitmaps.cache.mcp_namebg)
   -- The record tab's art ends 2 pt inside its 36 pt cell, which the mixer's 76 pt strip clips: the cell reaches 2 pt past the edge.
-  local flat,fh,fg=open(flat_generic(fake.host()))
+  local flat,fh,fg=open(flat_generic(fake.host()),true)
   eq(app.view.hits.I_RECARM.x,flat.view.hits.I_RECARM.x+2);eq(app.view.hits.I_RECARM.w,36)
   -- Another edition's own colours come from its script, not from BASIC's.
   local env={cache=h.cache..'/csix-colors',mkdir=function(p) os.execute('mkdir -p "'..p..'"') end}
@@ -443,7 +453,7 @@ test('double-clicking a track name renames that strip; the master has no rename'
 end)
 
 test('the Inspector follows the theme REAPER is using until one is chosen by hand', function()
-  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx();without_stock(h)
   local App=dofile('inspector/app.lua')
   local zip='tests/fixtures/Zipped theme.ReaperThemeZip'
   local app=App.new(h,g);assert(app:start());eq(app.following,true);eq(app.theme_path,REAPERTIPS);eq(app.theme.layout,'reapertips')
@@ -461,6 +471,83 @@ test('the Inspector follows the theme REAPER is using until one is chosen by han
   app:stop()
   h.ext['ReaperInspector/theme']='/old/0.3/value.ReaperTheme'     -- the pre-0.4 key is ignored
   h.theme_file=REAPERTIPS;app=App.new(h,g);assert(app:start());eq(app.following,true);eq(app.theme_path,REAPERTIPS);app:stop()
+  eq(#h.writes,0)
+end)
+
+test('a theme with no layout, or none that loads, borrows the stock Default 7; without one nothing changes', function()
+  local fake=dofile('tests/synthetic.lua');local h=fake.host();with_stock(h)
+  local Theme=dofile('inspector/theme.lua')
+  local zip,missing='tests/fixtures/Zipped theme.ReaperThemeZip','/nonexistent/Classic.ReaperTheme'
+  local stock=h.GetResourcePath()..'/ColorThemes/Default_7.0'
+  local env={cache=h.cache..'/borrow',mkdir=h.RecursiveCreateDirectory,stock=stock}
+  local t=assert(Theme.resolve(zip,env))
+  eq(t.layout,'default7');eq(t.borrowed,true);eq(t.borrowed_for,zip);eq(t.live,nil);assert(t.source:find('Default_7.0.ReaperThemeZip',1,true))
+  local u=assert(Theme.resolve(missing,env));eq(u.layout,'default7');eq(u.borrowed_for,missing)
+  -- the checkbox's own_art keeps a loadable theme's own artwork, but cannot help one that does not load
+  env.own_art=true
+  local own=assert(Theme.resolve(zip,env));eq(own.layout,'generic');eq(own.borrowed,nil)
+  eq(assert(Theme.resolve(missing,env)).borrowed,true);env.own_art=nil
+  -- a recognised theme, and the stock theme itself, are never replaced
+  local r=assert(Theme.resolve(REAPERTIPS,env));eq(r.layout,'reapertips');eq(r.borrowed,nil)
+  local d7=assert(Theme.resolve(stock..'.ReaperThemeZip',env));eq(d7.layout,'default7');eq(d7.borrowed,nil)
+  -- the .ReaperTheme beside the archive is tried when the archive is not there
+  local only=h.cache..'/borrow-only/Default_7.0';os.execute('mkdir -p "'..h.cache..'/borrow-only"')
+  local f=assert(io.open(h.real_res..'/ColorThemes/Default_7.0.ReaperTheme','rb'));local ini=f:read('a');f:close()
+  f=assert(io.open(only..'.ReaperTheme','wb'));f:write((ini:gsub('ui_img=[^\r\n]*',function() return 'ui_img='..stock..'.ReaperThemeZip' end)));f:close()
+  env.stock=only;local viaini=assert(Theme.resolve(zip,env));eq(viaini.layout,'default7');eq(viaini.borrowed,true)
+  -- no stock, or a stock that is not Default 7: today's result
+  env.stock='/nonexistent/Default_7.0';eq(Theme.resolve(zip,env).layout,'generic');eq(Theme.resolve(zip,env).borrowed,nil)
+  local _,err=Theme.resolve(missing,env);assert(err and err:find('Cannot read'))
+  env.stock='tests/fixtures/Zipped theme';eq(Theme.resolve(zip,env).layout,'generic');eq(Theme.resolve(zip,env).borrowed,nil)
+  assert(not Theme.resolve(missing,env));eq(Theme.resolve(zip,{cache=env.cache,mkdir=env.mkdir}).layout,'generic')   -- no env.stock at all: as before
+  _,err=Theme.resolve('bad\npath',{stock=stock});eq(err,'Invalid theme path')
+end)
+
+test('the borrowed Default 7 keeps the follow check, the remembered choice and the checkbox working on the original theme', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx();with_stock(h)
+  local App=dofile('inspector/app.lua')
+  local zip,missing='tests/fixtures/Zipped theme.ReaperThemeZip','/nonexistent/Classic.ReaperTheme'
+  local stockzip=h.GetResourcePath()..'/ColorThemes/Default_7.0.ReaperThemeZip'
+  local made,mk=0,h.RecursiveCreateDirectory;h.RecursiveCreateDirectory=function(...) made=made+1;return mk(...) end
+  h.ThemeLayout_GetParameter=function(i) if i==0 then return 'mcpBgColR','',42 end end
+  h.theme_file=zip
+  local app=App.new(h,g);assert(app:start());local t=app.theme
+  eq(t.layout,'default7');eq(t.borrowed,true);eq(app.theme_path,zip);eq(app.view.options.status,'');eq(app.following,true)
+  local loads=made
+  for _=1,95 do app:frame() end
+  eq(app.theme,t);eq(t.live,nil);eq(made,loads)                       -- no live values, no reload loop
+  h.theme_file=missing;for _=1,31 do app:frame() end                  -- REAPER switched to an unloadable look: still noticed
+  eq(app.theme_path,missing);eq(app.theme.borrowed_for,missing);eq(app.theme.layout,'default7');eq(app.view.options.status,'')
+  h.theme_file=stockzip;for _=1,31 do app:frame() end                 -- the genuine stock theme: live values apply
+  eq(app.theme.layout,'default7');eq(app.theme.borrowed,nil);eq(app.theme.live.mcpBgColR,42)
+  h.theme_file=REAPERTIPS;for _=1,31 do app:frame() end;eq(app.theme.layout,'reapertips');eq(app.theme.live.mcpBgColR,42)
+  -- the checkbox swaps the borrowed look and the theme's own artwork; a recognised theme is left alone
+  local same=app.theme;g.menu=5;app:menu();eq(app.theme,same);app:menu()
+  h.theme_file=zip;for _=1,31 do app:frame() end;eq(app.theme.borrowed,true)
+  app:menu();eq(app.view.options.full_theme_artwork,true);eq(app.theme.layout,'generic');eq(app.theme.borrowed,nil);eq(app.theme_path,zip)
+  app:frame();eq(app.view.theme,app.theme);for _=1,31 do app:frame() end;eq(app.theme.layout,'generic')
+  h.theme_file=missing;for _=1,31 do app:frame() end;eq(app.theme.borrowed_for,missing);eq(app.view.options.status,'')
+  h.theme_file=zip;for _=1,31 do app:frame() end;eq(app.theme.layout,'generic')
+  app:menu();eq(app.view.options.full_theme_artwork,false);eq(app.theme.borrowed,true);eq(app.theme.live,nil);for _=1,31 do app:frame() end;eq(app.theme.live,nil)
+  -- a hand-loaded theme is remembered as that file, not as the stock theme
+  assert(app:load_path(zip));eq(app.following,false);eq(h.ext['ReaperInspector/theme_choice'],zip);eq(app.theme.borrowed,true)
+  h.theme_file=REAPERTIPS;for _=1,31 do app:frame() end;eq(app.theme_path,zip)
+  -- a hand-picked path that cannot be read is reported and changes nothing
+  local ok,lerr=app:load_path(missing);eq(ok,false);assert(lerr and lerr~='');eq(app.theme_path,zip);eq(h.ext['ReaperInspector/theme_choice'],zip);assert(app.view.options.status~='')
+  app:stop();app=App.new(h,g);assert(app:start());eq(app.following,false);eq(app.theme_path,zip);eq(app.theme.borrowed_for,zip);eq(app.theme.live,nil)
+  app:stop();eq(#h.writes,0)
+end)
+
+test('without a stock Default 7, unrecognised and unloadable themes behave as before', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx();without_stock(h)
+  local App=dofile('inspector/app.lua')
+  local zip,missing='tests/fixtures/Zipped theme.ReaperThemeZip','/nonexistent/Classic.ReaperTheme'
+  h.theme_file=zip;local app=App.new(h,g);assert(app:start())
+  eq(app.theme.layout,'generic');eq(app.theme.borrowed,nil);eq(app.view.options.status,'')
+  h.theme_file=missing;for _=1,31 do app:frame() end
+  assert(app.view.options.status~='');eq(app.theme.layout,'generic');eq(app.theme_path,zip)   -- the error, and the last good theme kept
+  g.menu=5;app:menu();eq(app.theme.layout,'generic');app:stop()
+  h.theme_file=missing;app=App.new(h,g);assert(app:start());eq(app.theme,nil);assert(app.view.options.status~='');app:stop()
   eq(#h.writes,0)
 end)
 
@@ -1228,7 +1315,10 @@ test('iconEX: the macro\'s rows from the panel top and bottom, the track colour 
   -- cap's top down to the groove's end (the cap's top row is the middle of the image).
   local x1,y1,x2,y2=blit('mcp_color_bg%.png$');eq(x1,-2);eq(y1,T*2);eq(x2,158);eq(y2,(T+301)*2)       -- (the synthetic gfx reads no guide pixels: no overhang)
   x1,y1,x2,y2=blit('mcp_sol1_bgsel%.png$');eq(x1,-2);eq(y1,T*2)
-  local _,_,_,_,cap=blit('mcp_volthumb%.png$');eq(cap[10],39);eq(cap[8],58);eq(cap[9]+cap[11],(T+254)*2);eq(cap[5],v.bitmaps.cache.mcp_volthumb.height//2)
+  local _,_,_,vy2,cap=blit('mcp_volthumb%.png$');eq(cap[10],39);eq(cap[8],58);eq(vy2,(T+254)*2);eq(cap[5],v.bitmaps.cache.mcp_volthumb.height//2)
+  -- The fill's bottom corners are rounded as in the native strip (its last four rows narrow by 4, 2, 1, 1 px): the last rows are narrower blits of the art's last row.
+  local rows={};for _,b in ipairs(g.blits) do if g.images[b[1]]:match('mcp_volthumb%.png$') and b[11]==1 then rows[#rows+1]=b[10] end end
+  eq(#rows,6);assert(rows[1]<rows[6] and rows[1]<=39-6,'the corner rows narrow towards the bottom')
   -- The track's colour is one fill under the panel's top 160 pt, seen through the art's slot; nothing else takes it.
   local function fills(r,gg,b) -- rect calls drawn in one colour
     local out,cur={}
@@ -1607,6 +1697,14 @@ test('Older Imperial siblings (WT Imperial, Imperial LCS-mod dark): one layout o
         end
       end
     end
+    -- Rows only ever appear as the strip grows: no block, and no rack row, a shorter strip shows is hidden on a taller one.
+    do local seen,rows={}
+      for hgt=340,900,10 do
+        h.a.values.I_PANMODE=3;at(spec.w,hgt);local k=v.hits;local n=v.fx_box.rows+v.send_box.rows
+        for _,id in ipairs({'meter','I_RECINPUT','IO','I_AUTOMODE','FX','I_RECARM','I_RECMON','I_RECMODE'}) do assert(k[id] or not seen[id],spec.file..': '..id..' vanishes at '..hgt);seen[id]=seen[id] or k[id]~=nil end
+        assert(not rows or n>=rows,spec.file..': racks lose rows at '..hgt..' ('..n..' after '..(rows or 0)..')');rows=n
+      end
+    end
     -- A short strip gives the blocks above the racks up (the fader gives way first); the racks, pan, name, mute and solo stay.
     h.a.values.I_PANMODE=3;at(spec.w,340);local k=v.hits
     assert(k.I_RECARM==nil and k.I_RECINPUT==nil and k.meter==nil and k.I_AUTOMODE==nil and k.FX==nil and k.IO==nil and k.B_MUTE and k.B_PHASE and k.fx1.action)
@@ -1829,7 +1927,7 @@ test('theme paths are literal data including spaces/apostrophes and invalid load
   assert(not Theme.resolve('tests/fixtures/missing.ReaperTheme'))
   assert(not Theme.resolve('bad\npath'));assert(not Theme.resolve('bad\0path'))
   assert(not Theme.resolve("x'; os.execute('false'); --"))
-  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx();without_stock(h)
   local app=dofile('inspector/app.lua').new(h,g);assert(app:start());local before=app.theme
   assert(not app:load_path('/not/a/theme'));eq(app.theme,before)
   g.menu=2;h.GetUserInputs=function() return true,"tests/fixtures/theme's [safe] assets" end
@@ -1952,6 +2050,7 @@ test('ReaTools (Classic, Dark, DarkBlack): the script\'s 80 pt strip on a printe
   local function box(hit,x,y,w,hh) assert(hit,'missing box');assert(math.abs(hit.x-x)<.01,hit.id..' x '..hit.x);assert(math.abs(hit.y-y)<.01,hit.id..' y '..hit.y);assert(math.abs(hit.w-w)<.01,hit.id..' w '..hit.w);assert(math.abs(hit.h-hh)<.01,hit.id..' h '..hit.h) end
   -- The native screenshot's strip: 80 pt wide, 785 pt tall (the script's 957 pt design less 172 pt; every box measured against it and the script).
   at(80,785);eq(#v.bitmaps.missing,0);local k=v.hits
+  eq(v.send_box.rows,1);eq(v.send_bar,nil) -- one send fills the one-row rack, but no scrollbar sliver at the row's end (measured: 8 x 16 px of 153 grey over the face at 2 px/pt)
   box(k.fx1,3,20,73,18);box(k.send1,3,132,73,18);box(k.output,3,152,73,18);box(k.I_RECINPUT,5,192,69,18);box(k.I_RECMODE,5.75,210,55.25,17);box(k.INFX,61,210,12,17)
   box(k.I_AUTOMODE,5,245,69,17);box(k.FX,6,279,48,19);box(k.I_FXEN,54,276,21,28);box(k.D_PAN,23,304,34,36);box(k.I_RECMON,9,370,28,20);box(k.I_RECARM,41,370,28,20)
   box(k.I_SOLO,9,395,28,20);box(k.B_MUTE,41,395,28,20);box(k.D_VOL,12,422,28,235);box(k.meter,57,420.5,12.5,232);box(k.B_PHASE,22,670,31,26);box(k.name,4,697,73,15);box(k.IO,8,734,60,26)
@@ -2130,6 +2229,15 @@ test('Realogix: the script\'s 72 pt strip, racks kept at three rows by lowering 
       end
     end
   end
+  -- Rows only ever appear as the strip grows: what a shorter strip shows (the rows between the racks and the pan, the racks themselves) a taller one keeps.
+  for _,mode in ipairs({3,5,6}) do
+    h.a.values.I_PANMODE=mode;local seen,rows={}
+    for hgt=340,900,10 do
+      at(86,hgt);k=v.hits;local n=v.fx_box.rows+v.send_box.rows
+      for _,id in ipairs({'FX','I_AUTOMODE','IO','I_RECINPUT','I_RECMON','I_RECARM','B_PHASE'}) do assert(k[id] or not seen[id],id..' vanishes at '..hgt..' mode '..mode);seen[id]=seen[id] or k[id]~=nil end
+      if hgt<=720 then assert(not rows or n>=rows,'racks lose rows at '..hgt..' mode '..mode);rows=n end -- (above 723 pt the script's input field and above 800 its larger pan take space from the racks)
+    end
+  end
   -- A short strip lowers the blocks above the fader and then drops routing, automation, FX; the racks, pan, name, mute, solo and fader stay, and a rack row acts.
   h.a.values.I_PANMODE=3;at(86,340);k=v.hits
   assert(k.FX==nil and k.I_AUTOMODE==nil and k.B_MUTE and k.D_PAN and k.D_VOL and k.fx1.action)
@@ -2184,6 +2292,7 @@ test('Default 3.0 and 4.0: the old stock strips, one layout on two geometries, r
     local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),t,{output_strip=false})
     local function at(w,hgt) g.ext_retina=2;g.w=w*2;g.h=hgt*2;g.blits={};g.calls={};v:frame() end
     h.a.values.I_PANMODE=3;at(sp.w,sp.h);eq(#v.bitmaps.missing,0);sp.ref(v.hits)
+    eq(v.fx_box.y,sp.n==4 and 13 or 0) -- the native lists start at 0 pt (3.0) and 13 pt (4.0, measured from its screenshot)
     -- Stereo pan is two controls, dual pan two others; balance is one.
     h.a.values.I_PANMODE=5;at(sp.w,sp.h);assert(v.hits.D_PAN and v.hits.D_WIDTH and not v.hits.D_DUALPANL)
     h.a.values.I_PANMODE=6;at(sp.w,sp.h);assert(v.hits.D_DUALPANL and v.hits.D_DUALPANR and not v.hits.D_PAN)
@@ -2227,6 +2336,15 @@ test('Default 3.0 and 4.0: the old stock strips, one layout on two geometries, r
         assert(k['out:fx1'].action and k['out:D_VOL'].h>=100,'master keeps its rack and a fader at '..hgt)
       end
     end
+    -- Send rows wear the theme's send art and text colours: neither theme ships midihw art, so a MIDI output is a normal send (dark text, as measured
+    -- in the native strip), and the pinned Master send row is drawn as a send row too, not as an insert.
+    v.options.output_strip=false;h.a.values.I_MIDIHWOUT=0;h.GetMIDIOutputName=function() return true,'MIDI Interface' end
+    at(sp.w,sp.h);eq(v.snapshot.sends[1].kind,'midi')
+    local norm,midihw=0,0;for _,b in ipairs(g.blits) do local img=g.images[b[1]] or '';if img:find('mcp_sendlist_norm%.png$') then norm=norm+1 elseif img:find('mcp_sendlist_midihw%.png$') then midihw=midihw+1 end end
+    eq(midihw,0);eq(norm,3) -- the MIDI send, the track send and the Master send row
+    local cur,midic;for _,c in ipairs(g.calls) do if c[1]=='set' then cur=c elseif c[1]=='drawstr' and c[2]=='MIDI Interface' then midic=cur end end
+    assert(midic and math.abs(midic[2]*255-40)<.5 and math.abs(midic[3]*255-40)<.5,'a MIDI send reads in the theme\'s dark 0x282828')
+    h.a.values.I_MIDIHWOUT=-1;h.GetMIDIOutputName=function() return false,'' end
     -- Click through to the model.
     v.options.output_strip=false;at(sp.w,sp.h)
     local before=#h.writes

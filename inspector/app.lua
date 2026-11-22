@@ -39,7 +39,9 @@ function M:stop(status)
 end
 function M:env()
   local r=self.r
-  return {cache=r.GetResourcePath()..'/Data/ReaperInspector/cache',mkdir=function(p) r.RecursiveCreateDirectory(p,0) end}
+  -- stock: REAPER's own Default 7, borrowed for themes that have no layout here; own_art: the experimental checkbox.
+  return {cache=r.GetResourcePath()..'/Data/ReaperInspector/cache',mkdir=function(p) r.RecursiveCreateDirectory(p,0) end,
+    stock=r.GetResourcePath()..'/ColorThemes/Default_7.0',own_art=self.view and self.view.options.full_theme_artwork==true}
 end
 function M:apply(theme,path,err)
   if not theme then self.view.options.status=err;self:put('error',err);return false,err end
@@ -50,15 +52,17 @@ end
 -- A theme chosen by hand is remembered and stays until "Follow REAPER's theme" is chosen again.
 function M:load_path(path)
   local theme,err=Theme.resolve(path,self:env())
+  -- A path picked by hand that cannot be read is a mistake to report, not something to paper over with the borrowed look.
+  if theme and theme.unloadable then theme,err=nil,theme.unloadable end
   local ok=self:apply(theme,path,err)
   if ok then self.following=false;self:put('theme_choice',path,true) end
   return ok,err
 end
 -- The values chosen in REAPER's Theme Adjuster. They describe REAPER's current theme, so they are
--- only attached while the Inspector is following it.
+-- only attached while the Inspector is following it (never to a borrowed Default 7, which keeps its own script defaults).
 function M:live_params()
   local r=self.r
-  if not self.following or not self.theme or not r.ThemeLayout_GetParameter then return end
+  if not self.following or not self.theme or self.theme.borrowed or not r.ThemeLayout_GetParameter then return end
   local live={}
   for i=0,4000 do
     local name,_,value=r.ThemeLayout_GetParameter(i)
@@ -96,7 +100,11 @@ function M:menu()
   elseif choice==2 then self:set_output(not out)
   elseif choice==3 then self:choose_theme()
   elseif choice==4 then self:follow()
-  elseif choice==5 then self.view.options.full_theme_artwork=not full;self.view.drag=nil
+  elseif choice==5 then
+    self.view.options.full_theme_artwork=not full;self.view.drag=nil
+    -- Swap between the borrowed look and the theme's own artwork; a recognised theme is left alone.
+    local t=self.theme and (self.theme.borrowed or self.theme.layout=='generic' and not self.theme.full_art) and Theme.resolve(self.theme_path,self:env())
+    if t then self:apply(t,self.theme_path);self:live_params() end
   elseif choice==6 then self:stop() end
 end
 function M:set_output(on)

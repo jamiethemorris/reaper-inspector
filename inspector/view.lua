@@ -1504,7 +1504,16 @@ function M:lowerix(s,W,H,c)
     local x0=self:pxx(fx0)
     local y0=self:px(fy-7.5)
     local hh=math.min(self:px(T+168+mh)-y0,math.floor((thumb.height-cap)*k))
-    if hh>0 then bm:blit(thumb,0,cap,thumb.width-1,math.floor(hh/k+.5),x0,y0,math.floor((thumb.width-1)*k+.5),hh,k~=1) end
+    -- The native fill ends in rounded bottom corners (corner insets 4,2,1,1 px over its last four rows at 2 px/pt = a 3 pt circle); the art is square, so its last rows are clipped to that circle.
+    local rr=hh>=12 and math.floor(3*self.scale+.5) or 0;local body=hh-rr
+    local keep=bm.clip
+    for i=0,rr-1 do -- row i from the bottom, drawn between the columns the circle leaves
+      local inset=math.floor(rr-math.sqrt(rr*rr-(rr-i-.5)^2)+.5)
+      bm.clip={self:pxx(fx0+4)+inset,self:pxx(fx0+15)-inset}
+      bm:blit(thumb,0,thumb.height-2,thumb.width-1,1,x0,y0+hh-1-i,math.floor((thumb.width-1)*k+.5),1,k~=1)
+    end
+    bm.clip=keep
+    if hh>0 then bm:blit(thumb,0,cap,thumb.width-1,math.floor(body/k+.5),x0,y0,math.floor((thumb.width-1)*k+.5),body,k~=1) end
   else self:rect(fx0+2,fy-7.5,15,15,{127,191,255}) end
   local hit=self:hit('D_VOL',fx0,T+168,19,mh)
   hit.kind,hit.token,hit.top,hit.bottom,hit.fader_y='D_VOL',s,ftop,fbottom,fy
@@ -2149,6 +2158,7 @@ function M:oldrows(s,H,W)
   end
   k=math.min(k,kmax);list,Y,ey,eh=build(dropped,k)
   local g={bx=math.floor((W-Wd)/2),o=o,Wd=Wd,list=list,Y=Y,k=k,F=306-18*k,ey=ey,eh=math.max(row,eh),segs=segs,dropped=dropped}
+  if k>0 then g.cap=3 end                                            -- while the fader gives way the box swings between three and four rows with each 18 pt step: it lists three, so the rows only grow with the strip
   g.top=dropped.top~=true
   g.rx=rack[7]==1 and rack[1] or math.max(0,g.bx+rack[1])           -- a rack with its right edge attached follows the strip's width
   g.rw=math.min(rack[7]==1 and W-(Wd-rack[1]-rack[3])-g.rx or rack[3],W-g.rx)
@@ -2873,7 +2883,7 @@ function M:lowerpt(s,W,H,c)
   self.layout={T=g.ey,S=my,B=my+mh,L=H-g.ey,meter=true}
   self:rect(mx,my,mw,mh,{42,47,44});self:rect(mx+1,my+1,mw-2,6/68*mh+.75,{40,40,40});image('meter_custom_border',mx,my,mw,mh) -- (the part above 0 dB is neutral, the rest green-grey)
   local step=mh/68*6>=15 and 6 or 12
-  self:meter(s,{x=mx+1,y=my+1,w=mw-2,h=mh-2,font='bold',keep_scale=true,scale_color={132,136,134},readout_color={150,150,150},loudness_bg={40,40,40},loudness_color={255,255,255},readout=6/68*mh>=20,readout_y=math.max(1.5,3/68*mh-6.5),first=0,last=mt and 54 or 60,step=step,gap=nil},c.colors) -- (the readout sits centred above the 0 dB mark)
+  self:meter(s,{x=mx+1,y=my+1,w=mw-2,h=mh-2,font='bold',ticks=true,keep_scale=true,scale_color={132,136,134},readout_color={150,150,150},loudness_bg={40,40,40},loudness_color={255,255,255},readout=6/68*mh>=20,readout_y=math.max(1.5,3/68*mh-6.5),first=0,last=mt and 54 or 60,step=step,gap=nil},c.colors) -- (the readout sits centred above the 0 dB mark)
   local fx=mt and 8 or mx+mw+6
   if mt then fx=8+mex end
   local vy,vh=my,mh
@@ -2916,24 +2926,23 @@ function M:rlrows(s,H,W)
   g.vol=up
   -- the optional rows, each at the design y the script gives it at this height (nil = the script hides it); the racks' box needs the first two cases
   local r={}
-  if (H>389 and H<=423) or H>633 then r.fx=tall and 429 or H>414 and (H>423 and 494 or 493) or 519 end
-  if (H>363 and H<=423) or H>534 then r.env=tall and 455 or H>575 and 518 or H>534 and 542 or H>414 and 518 or 543 end
-  if (H>339 and H<=423) or H>575 then r.io=tall and 481 or H>575 and 542 or H>414 and 543 or 567 end
+  -- (the script hides all three between 424 and 633 pt, where its racks' box would cover them, and brings them back one by one: a taller strip would lose rows
+  -- a shorter one shows, so from 424 pt the Inspector keeps them at the places the script gives them above 633 pt and lowers the blocks above the fader instead)
+  if H>389 then r.fx=tall and 429 or H>414 and (H>423 and 494 or 493) or 519 end
+  if H>363 then r.env=tall and 455 or H>414 and 518 or 543 end
+  if H>339 then r.io=tall and 481 or H>423 and 542 or H>414 and 543 or 567 end
   if H>723 and not mt then r.input=tall and 403 or 470 end
   g.r=r
-  -- the racks' box: the script's (bottom edge at H-892+h of its table), else three rows
+  -- the racks' box: the script's (bottom edge at H-892+h of its table), else three rows; the rows above the fader sit below it
   local D=0
   if H>423 then
-    local bh=H>800 and 385 or H>723 and 453 or H>633 and 477 or H>575 and 501 or H>534 and 525 or 549
-    g.eh=H-892+bh-g.ey
-    if tall then g.eh=g.eh end
-  else
-    g.eh=RL_BOXMIN
-    local top=1e9
-    for _,yd in pairs(r) do top=math.min(top,yd) end
-    top=math.min(top,tall and 572 or bars and (up and 567 or 592) or (up and 572 or 596))
-    D=math.max(0,g.ey+g.eh+RL_GAP-(top+o))
-  end
+    local bh=H>800 and 385 or H>723 and 453 or 477 -- (the script's 501, 525 and 549 below 634 pt shorten the box as the strip grows, to uncover its rows: kept at 477, the box only grows)
+    g.eh=math.max(RL_BOXMIN,H-892+bh-g.ey)
+  else g.eh=RL_BOXMIN end
+  local top=1e9
+  for _,yd in pairs(r) do top=math.min(top,yd) end
+  top=math.min(top,tall and 572 or bars and (up and 567 or 592) or (up and 572 or 596))
+  D=math.max(0,g.ey+g.eh+RL_GAP-(top+o))
   D=math.min(80,math.ceil(D/5)*5);g.D=D
   g.Yt=function(yd) return yd+o+D end                                   -- a block above the fader moves down with it
   g.Yb=function(yd) return yd+o end                                     -- a block below it keeps its place
@@ -3280,7 +3289,7 @@ end
 local D34_PANEL,D34_BOX={[3]=373,[4]=374},63
 local function lighten(c,a) return {c[1]+(255-c[1])*a,c[2]+(255-c[2])*a,c[3]+(255-c[3])*a} end
 function M:d34rows(s,H,W)
-  local g={d=self.theme.d34,mt=s.master,ey=self.theme.d34==3 and 0 or 1,rx=0,rw=W}
+  local g={d=self.theme.d34,mt=s.master,ey=self.theme.d34==3 and 0 or 13,rx=0,rw=W} -- (4.0's first insert row starts 13 pt down: 26 px in the native screenshot, 2 px in the Inspector before)
   g.P=math.min(D34_PANEL[g.d],H-g.ey-D34_BOX)
   g.eh=H-g.P-g.ey
   return g
@@ -3349,7 +3358,7 @@ function M:lowerd34(s,W,H,c)
   local kp,kw=dual and 'D_DUALPANL' or 'D_PAN',dual and 'D_DUALPANR' or 'D_WIDTH'
   local vp,vw=dual and s.D_DUALPANL or s.D_PAN,dual and s.D_DUALPANR or s.D_WIDTH
   local pl=pan_label(vp)
-  local wl=dual and pan_label(vw) or ('%d%%'):format(math.floor(vw*100+.5))
+  local wl=dual and pan_label(vw) or ('%dW'):format(math.floor(vw*100+.5)) -- (the native strip prints a stereo pan's width as "85W")
   local number=('%d'):format(s.IP_TRACKNUMBER)
   local function rename() self:hit('name',d==3 and 4 or 1,tp+(d==3 and 22 or 35),d==3 and 63+ex or 70+ex,d==3 and 15 or 18).double=function() self:rename(s) end end
   local ink=d==3 and {20,20,20} or {221,224,224}
@@ -3586,7 +3595,8 @@ function M:strip(s,W,H)
     if not (selected and backing('mcp_extmixbgsel')) then backing('mcp_extmixbg') end
   end
   local n=math.max(0,math.floor((T-(fm and 10 or 5)-Y0)/row)) -- Flat Madness's list backdrops end in 3 pt handles
-  local sendrows=n>=4 and math.max(1,math.floor(n*.25+.5)) or n>=2 and 1 or 0
+  if imp2 and ig.cap then n=math.min(n,ig.cap) end
+  local sendrows=n>=4 and math.max(1,math.floor(n*.25+(d34 and lg.d==3 and 0 or .5))) or n>=2 and 1 or 0 -- (Default 3.0's native rack, 30 rows: 23 inserts, so the sends take 7, not 8)
   -- The last send-rack row is pinned to the track's own output (master/parent send); the master has none.
   local outrow=not s.master and self.r.GetMasterTrack~=nil
   if outrow and n>=3 then sendrows=math.max(2,sendrows) end
@@ -3600,7 +3610,7 @@ function M:strip(s,W,H)
   self.send_offset=clamp(self.send_offset,0,overflow(#s.sends,sendrows))
   -- Scrollbar in the rack's right margin, shown only while the rack is full.
   local function scrollbar(id,count,rows,offset,y,row)
-    local over=overflow(count,rows);if over==0 then self[id]=nil;return end
+    local over=overflow(count,rows);if over==0 or (rtl and rows==1) then self[id]=nil;return end -- (ReaTools: a one-row send rack's bar is only a pale sliver at the row's end, which its native strip, listing more rows, never shows; the wheel still scrolls)
     local c=col('mcp_list_scrollbar',{140,140,140});local h=rows*row-2;local total=count+1
     local th=math.max(8,h*rows/total)
     self:rect(W-3.5,y+1+(h-th)*offset/over,2.5,th,{c[1],c[2],c[3],160})
@@ -3655,7 +3665,7 @@ function M:strip(s,W,H)
   end
   for i=1,sendrows do
     local send=s.sends[i+self.send_offset];local y=sy+(i-1)*srow
-    local art=not send and 'mcp_sendlist_empty' or send.kind=='midi' and ((nv or ec) and 'mcp_sendlist_norm' or 'mcp_sendlist_midihw') or send.mute and 'mcp_sendlist_mute' or 'mcp_sendlist_norm'
+    local art=not send and 'mcp_sendlist_empty' or send.kind=='midi' and ((nv or ec or d34 or rtl) and 'mcp_sendlist_norm' or 'mcp_sendlist_midihw') or send.mute and 'mcp_sendlist_mute' or 'mcp_sendlist_norm'
     local hover=inside({x=0,y=y,w=W,h=srow},self.mx,self.my)
     if nv then if send then self:sprite(art,hover and 1 or 0,0,y,W,srow) end elseif hz or imp or rtl or ptl or rll or ec then self:sprite(art,hover and 1 or 0,0,y,W,srow) elseif fm then self:sprite(art,hover and 1 or 0,-2,y-1,W-1.5,srow) else self:sprite(art,hover and 1 or 0,-1,y,W-3,srow) end
     if send then
@@ -3689,8 +3699,9 @@ function M:strip(s,W,H)
     local y=sy+sendrows*srow+2;local on=s.B_MAINSEND~=0
     self:rect(0,y-1.5,W,1,{255,255,255,40})
     local hover=inside({x=0,y=y,w=W,h=srow},self.mx,self.my)
-    if nv then self:sprite(on and 'mcp_fxlist_norm' or 'mcp_sendlist_mute',hover and 1 or 0,0,y,W,srow) elseif hz or imp or rtl or ptl or rll or ec then self:sprite(on and 'mcp_fxlist_norm' or 'mcp_sendlist_mute',hover and 1 or 0,0,y,W,srow) elseif fm then self:sprite(on and 'mcp_fxlist_norm' or 'mcp_sendlist_mute',hover and 1 or 0,-1.5,y-1,W-1,srow) else self:sprite(on and 'mcp_fxlist_norm' or 'mcp_sendlist_mute',hover and 1 or 0,-1,y,W-2,srow) end
-    local c=on and col('mcp_fx_normal',{216,216,216}) or col('mcp_sends_muted',{228,94,101})
+    local oart=on and (d34 and 'mcp_sendlist_norm' or 'mcp_fxlist_norm') or 'mcp_sendlist_mute' -- (Default 3.0/4.0: dressed as a send row, not as the dark insert beside it)
+    if nv then self:sprite(oart,hover and 1 or 0,0,y,W,srow) elseif hz or imp or rtl or ptl or rll or ec then self:sprite(oart,hover and 1 or 0,0,y,W,srow) elseif fm then self:sprite(oart,hover and 1 or 0,-1.5,y-1,W-1,srow) else self:sprite(oart,hover and 1 or 0,-1,y,W-2,srow) end
+    local c=on and (d34 and col('mcp_sends_normal',{254,207,103}) or col('mcp_fx_normal',{216,216,216})) or col('mcp_sends_muted',{228,94,101})
     self:text(s.parent and 'Parent send' or 'Master send',hz and 1.5 or imp and 3 or ptl and 3 or rtl and 16 or 7.5,y-.5,hz and W-3 or imp and W-6 or ptl and W-6 or rtl and W-21 or W-19.5,srow,c,'list',(hz or imp or rtl or ptl) and 0 or 1)
     if not s.owner and self.root.shown_main then self:rect(2.5,y+2,1.5,srow-4,c) end
     self:hit('output',0,y,W,srow,function() if not s.owner then self.root.choice[s.guid]=nil end end,function() self:output_menu(s) end)
@@ -3945,7 +3956,7 @@ function M:meter(s,m,colors)
     self.g.setfont(mi);local tw=self.g.measurestr(label)/self.scale
     local cx=m.x+m.w/2
     self:text(label,m.x,y-7+(m.label_dy or 0),m.w,14,c,mf,1)
-    if m.w>=tw+9 then
+    if m.w>=tw+9 or m.ticks then -- (paRt prints its scale as "-12-" on a well too narrow for it)
       local tick={c[1],c[2],c[3],(c[4] or 255)*.5}
       self:rect(cx-tw/2-4,y-.5,2.5,1,tick);self:rect(cx+tw/2+1.5,y-.5,2.5,1,tick)
     end
