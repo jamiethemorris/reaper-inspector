@@ -2240,6 +2240,78 @@ test('Default 3.0 and 4.0: the old stock strips, one layout on two geometries, r
   end
 end)
 
+test('Echolot (FeedTheCat mod): the script\'s 102 pt strip, racks kept at three rows by lowering the blocks above the fader, narrower and wider strips, the master as the output strip', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  h.GetOS=function() return 'macOS-arm64' end
+  local Theme=dofile('inspector/theme.lua')
+  local home=os.getenv('HOME')..'/Library/Application Support/REAPER/ColorThemes/'
+  local env={cache=h.cache..'/echolot',mkdir=function(p) os.execute('mkdir -p \"'..p..'\"') end}
+  local t=assert(Theme.resolve(home..'Echolot_FTC.ReaperThemeZip',env));eq(t.layout,'echolot');eq(t.row_height,23)
+  eq(assert(Theme.resolve(home..'Echolot_FTC.ReaperTheme',env)).layout,'echolot')
+  local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),t,{output_strip=false})
+  local function at(w,hgt) g.ext_retina=2;g.w=w*2;g.h=hgt*2;g.blits={};g.calls={};v:frame() end
+  local function box(hit,x,y,w,hh) assert(hit,'missing box');assert(math.abs(hit.x-x)<.01,hit.id..' x '..hit.x);assert(math.abs(hit.y-y)<.01,hit.id..' y '..hit.y);assert(math.abs(hit.w-w)<.01,hit.id..' w '..hit.w);assert(math.abs(hit.h-hh)<.01,hit.id..' h '..hit.h) end
+  -- The native screenshot's strip: 102 pt wide, 791 pt tall (the script's 702 pt design plus 89 pt), stereo pan: every box is the script's rectangle at that height.
+  h.a.values.I_PANMODE=5;at(102,791);eq(#v.bitmaps.missing,0);local k=v.hits
+  box(k.FX,22,2,74,16);box(k.I_FXEN,5,3,14,14);box(k.fx1,6,20,92,23);box(k.IO,4,451,94,16);box(k.B_PHASE,5,472,20,20);box(k.I_AUTOMODE,29,472,20,20)
+  box(k.B_MUTE,5,496,20,20);box(k.I_SOLO,29,496,20,20);box(k.I_RECARM,53,496,20,20);box(k.I_RECMON,77,496,20,20)
+  box(k.D_PAN,34,521,34,34);box(k.D_WIDTH,72,526,24,27);box(k.D_VOL,40,566,22,157);box(k.meter,68,576,26,127);box(k.name,6,741,90,16)
+  -- Balance pan is one knob; dual pan two; width exists only in stereo pan.
+  h.a.values.I_PANMODE=3;at(102,791);k=v.hits;assert(k.D_PAN and not k.D_WIDTH)
+  h.a.values.I_PANMODE=6;at(102,791);k=v.hits;assert(k.D_DUALPANL and k.D_DUALPANR and not k.D_PAN)
+  -- Heights, widths and pan modes: nothing overlaps or leaves the strip; the rack rows, pan, name, mute, solo, arm, monitor and the fader stay at every height.
+  for _,hgt in ipairs({340,409,454,600,791,900}) do
+    for _,w in ipairs({86,96,102,120}) do
+      for _,mode in ipairs({3,5,6}) do
+        h.a.values.I_PANMODE=mode;at(w,hgt);k=v.hits
+        local ids={'fx1','output','B_MUTE','I_SOLO','name','D_VOL','meter','I_RECARM','I_RECMON'}
+        for _,id in ipairs(mode==6 and {'D_DUALPANL','D_DUALPANR'} or mode==5 and {'D_PAN','D_WIDTH'} or {'D_PAN'}) do ids[#ids+1]=id end
+        for _,id in ipairs({'FX','I_FXEN','IO','B_PHASE','I_AUTOMODE'}) do if k[id] then ids[#ids+1]=id end end
+        local order={}
+        for _,id in ipairs(ids) do assert(k[id],id..' missing at '..w..'x'..hgt..' mode '..mode);order[#order+1]=k[id] end
+        assert(k.fx1.action and k.output.action)
+        assert(v.fx_box.rows+v.send_box.rows+1>=3,'racks keep 3 rows at '..hgt)
+        for i,a in ipairs(order) do
+          assert(a.x>=0 and a.x+a.w<=w+.01 and a.y>=0 and a.y+a.h<=hgt+.01,a.id..' leaves the strip at '..w..'x'..hgt)
+          for j=i+1,#order do local b=order[j]
+            if a.id~='meter' and b.id~='meter' then
+              assert(a.x+a.w<=b.x+.01 or b.x+b.w<=a.x+.01 or a.y+a.h<=b.y+.01 or b.y+b.h<=a.y+.01,a.id..' overlaps '..b.id..' at '..w..'x'..hgt..' mode '..mode)
+            end
+          end
+        end
+        assert(k.D_VOL.h>=100,'fader too short at '..hgt)
+      end
+    end
+  end
+  -- A short strip lowers the blocks above the fader, then drops routing, polarity and automation (never the reverse as the strip grows); a rack row acts.
+  h.a.values.I_PANMODE=3;at(86,340);k=v.hits
+  assert(k.FX==nil and k.IO==nil and k.B_PHASE==nil and k.B_MUTE and k.D_PAN and k.D_VOL and k.fx1.action)
+  local short=k.D_VOL.h;local b0=#h.writes;k.fx1.action(8);assert(#h.writes>b0,'a rack row acts on a short strip')
+  local kept=0;for _,hgt in ipairs({340,409,454,600,791}) do at(86,hgt);local n=0;for _,id in ipairs({'FX','IO','B_PHASE','I_AUTOMODE'}) do if v.hits[id] then n=n+1 end end;assert(n>=kept,'rows only come back as the strip grows');kept=n end
+  at(86,791);assert(v.hits.FX and v.hits.IO and v.hits.B_PHASE and v.hits.D_VOL.h==157 and v.hits.D_VOL.h>short)
+  -- The master as the output strip (two strips need 172 pt): no phase, arm, monitor or name box; a mono switch; mute, solo, automation, pan, fader and its inserts.
+  v.options.output_strip=true;h.a.values.I_PANMODE=3
+  for _,hgt in ipairs({340,454,600,791}) do
+    for _,w in ipairs({86,96,120}) do
+      at(w*2,hgt);k=v.hits;local ids={'out:MONO','out:I_SOLO','out:D_VOL','out:D_PAN','out:B_MUTE','out:I_AUTOMODE','out:fx1'} -- (the master's rack is inserts only)
+      for _,id in ipairs({'I_RECARM','I_RECMON','B_PHASE','name','output'}) do eq(k['out:'..id],nil) end
+      for i,id in ipairs(ids) do local a=k[id];assert(a,id..' missing at '..w..'x'..hgt);assert(a.x>=w-.01 and a.x+a.w<=w*2+.01 and a.y>=0 and a.y+a.h<=hgt+.01,id..' leaves its strip at '..w..'x'..hgt)
+        for j=i+1,#ids do local b=k[ids[j]];assert(b);assert(a.x+a.w<=b.x+.01 or b.x+b.w<=a.x+.01 or a.y+a.h<=b.y+.01 or b.y+b.h<=a.y+.01,id..' overlaps '..ids[j]..' at '..w..'x'..hgt) end end
+      assert(k['out:fx1'].action and k['out:D_VOL'].h>=100,'master keeps its rack and a fader at '..hgt)
+    end
+  end
+  -- Click through to the model.
+  v.options.output_strip=false;h.a.values.I_PANMODE=5;at(102,791)
+  local before=#h.writes
+  local hit=v.hits.I_SOLO;g.mouse_x=(hit.x+5)*2;g.mouse_y=(hit.y+5)*2;g.mouse_cap=1;v:frame();g.mouse_cap=0;v:frame()
+  eq(#h.writes,before+1);eq(h.writes[#h.writes][2],'I_SOLO')
+  -- Recognised by its script: one changed rectangle falls back to the generic strip (as does the original edition's different script).
+  local changed,n=t.rtconfig:gsub('(set mcp%.solo h<103 %[0%] h<224 %[29 )25','%126')
+  assert(n==1);os.execute('mkdir -p \"'..env.cache..'/changed\"')
+  local f2=assert(io.open(env.cache..'/changed/rtconfig.txt','w'));f2:write(changed);f2:close()
+  eq(assert(Theme.resolve(env.cache..'/changed',env)).layout,'generic')
+end)
+
 for _, t in ipairs(tests) do
   local ok, err = xpcall(t[2], debug.traceback)
   if ok then passed = passed + 1; print('PASS '..t[1]) else print('FAIL '..t[1]..'\n'..err) end

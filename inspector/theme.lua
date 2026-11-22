@@ -531,6 +531,35 @@ end
 -- (name, solo, fader, polarity/mute, number) hung from the bottom and blocks stacked from the top (meter and input panel, automation, FX, the racks'
 -- box, record mode, record arm and monitor, pan), which the script drops in a fixed order when the racks' box would be too small. Recognised by the
 -- statements that place those blocks and colour its text; the sibling Imperial themes write other rectangles and fall back to the generic strip.
+-- Echolot (mawi's theme; FeedTheCat's mod is the edition checked): a flat mixer script (no macros, so not a Default 6/7 derivative) for a 102 pt strip of design
+-- height 702: the racks' box from the top, everything else hung from the bottom, blocks hidden by the panel's height. Recognised by the statements that place
+-- the blocks, the lists' rows and the name colours; the original edition's script (shipped as rtconfig_bak.txt) writes other rectangles and falls back to generic.
+local function echolot_of(cfg)
+  local script=' '..cfg:gsub(';[^\r\n]*',''):gsub('\\%s*[\r\n]',' '):gsub('%s+',' ')..' '
+  for _,s in ipairs({
+    'set mcp.size [102 702]', 'set mcp.trackidx + [6 672 90 16 0 1 0 1] folder_offs', 'set mcp.trackidx.color [189 189 193 255 0 0 0 0]', 'set mcp.label [6 652 90 16 0 1 0 1]',
+    'set mcp.label.color tcp.label.color', 'set tcp.label.color ?track_selected [31 31 31 255 230 189 125 255] [0 0 0 0 38 40 41 255]',
+    'set mcp.volume.label h<120 [0] [6 630 90 16 0 1 0 1]', 'set mcp.volume.label.color h<224 [198 203 206 255 38 40 41 200] [198 203 206 255 0 0 0 0]',
+    'set mcp.volume h<224 mcp.volume.label [40 477 22 157 0 1 0 1]', 'set mcp.meter h<80 [0] h<224 [6 6 90 15 0 0 0 0] [67 486 28 129 0 1 0 1]',
+    'set mcp.pan.label h<138 [0] h<170 trackpanmode<6 [6 613 45 13 0 1 0 1] [6 613 45 13 0 1 0 1] h<224 trackpanmode<6 [6 613 90 13 0 1 0 1] [6 613 45 13 0 1 0 1] h<275 [0] trackpanmode<6 [2 464 98 13 0 1 0 1] [2 464 49 13 0 1 0 1]',
+    'set mcp.pan h<170 mcp.pan.label h<224 trackpanmode<6 [34 581 34 34 0 1 0 1] [12 581 34 34 0 1 0 1] h<275 [0] trackpanmode<6 [34 432 34 34 0 1 0 1] [12 432 34 34 0 1 0 1]',
+    'set mcp.width.label h<138 [0] h<170 trackpanmode<6 [51 613 45 13 0 1 0 1] [51 613 45 13 0 1 0 1] h<224 trackpanmode<6 [0] [51 613 45 13 0 1 0 1] h<275 [0] trackpanmode<6 [0] [51 464 49 13 0 1 0 1]',
+    'set mcp.width h<170 mcp.width.label h<224 trackpanmode<6 [72 586 24 27 0 1 0 1] [56 581 34 34 0 1 0 1] h<275 [0] trackpanmode<6 [72 437 24 27 0 1 0 1] [56 432 34 34 0 1 0 1]',
+    'set mcp.mute h<103 [0] h<224 [5 25 20 20 0 0 0 0] h<300 [0] [5 407 20 20 0 1 0 1]', 'set mcp.solo h<103 [0] h<224 [29 25 20 20 0 0 0 0] h<300 [0] [29 407 20 20 0 1 0 1]',
+    'set mcp.recarm h<194 [0] h<224 [53 49 20 20 0 0 0 0] h<300 [0] [53 407 20 20 0 1 0 1]', 'set mcp.recmon h<194 [0] h<224 [77 49 20 20 0 0 0 0] h<300 [0] [77 407 20 20 0 1 0 1]',
+    'set mcp.phase h<194 [0] h<224 [5 49 20 20 0 0 0 0] h<324 [0] [5 383 20 20 0 1 0 1]', 'set mcp.env h<194 [0] h<224 [29 49 20 20 0 0 0 0] h<324 [0] [29 383 20 20 0 1 0 1]',
+    'set mcp.recmode [0]', 'set mcp.extmixer.mode [1]', 'set mcp.extmixer.position [6 20 92 342 0 0 0 1]', 'set mcp.fx h<358 [0] [86 5 10 10 0 0 0 0]',
+    'set mcp.fxbyp h<358 [0] [6 5 10 10 0 0 0 0]', 'set mcp.io h<343 [0] [86 364 10 10 0 1 0 1]', 'set col_width / 84 mcp_fx_columns',
+    'set mcp.fxlist.font [16 23 col_width{0} 300 0 0 0 0]', 'set mcp.fxlist.margin [4 0 4 0 0.5]', 'set mcp.sendlist.font [16 23]', 'set mcp.sendlist.margin [4 0 2 0 0]',
+    'set master.mcp.size + mcp.size [100]', 'set master.mcp.volume.label h<101 [0] [6 630 90 16 0 1 0 1]', 'set master.mcp.volume h<224 master.mcp.volume.label [40 477 22 157 0 1 0 1]',
+    'set master.mcp.meter [102 5 94 684 0 0 0 1]', 'set master.mcp.mute h<83 [0] h<224 [5 5 20 20 0 0 0 0] h<300 [0] [5 407 20 20 0 1 0 1]',
+    'set master.mcp.solo h<83 [0] h<224 [29 5 20 20 0 0 0 0] h<300 [0] [29 407 20 20 0 1 0 1]', 'set master.mcp.menubutton h<83 [0] h<224 [77 5 20 20 0 0 0 0] mcp.phase',
+    'set master.mcp.mono h<174 [0] h<224 [5 29 20 20 0 0 0 0] mcp.recmon', 'set master.mcp.env h<174 [0] h<224 [29 29 20 20 0 0 0 0] mcp.recarm',
+  }) do
+    if not script:find(' '..s..' ',1,true) then return false end
+  end
+  return true
+end
 local function imperial_of(cfg)
   local script=' '..cfg:gsub(';[^\r\n]*',''):gsub('\\%s*[\r\n]',' '):gsub('%s+',' ')..' '
   for _,s in ipairs({
@@ -846,6 +875,7 @@ local function layout_of(cfg)
   if cfg:find('macro%s+drawMcp%s+scale%s') and reatools_of(cfg) then return 'reatools' end
   if cfg:find('macro%s+MAC_DrawMcp%s') and part_of(cfg) then return 'part' end
   if not cfg:find('macro%s+draw') and cfg:find('set mcp.size [72 902]',1,true) and realogix_of(cfg) then return 'realogix' end
+  if not cfg:find('macro%s+draw') and cfg:find('set mcp.size [102 702]',1,true) and echolot_of(cfg) then return 'echolot' end
   if cfg:find('macro%s+draw_mcp%s') and imperial_of(cfg) then return 'imperial' end
   local old=not cfg:find('macro%s+draw_mcp') and imperial_old_of(cfg)
   if old then return 'imperial2',nil,nil,nil,nil,nil,nil,nil,old end
@@ -949,6 +979,12 @@ local function finish(t, cfg, inis)
     -- the name Calibri bold 12 px (user_font2; the native screenshot shows a regular sans, so Arial regular here), the number Verdana bold 11 px (user_font4): gfx sizes 1.27 x the pixel em.
     t.row_height,t.send_row_height = 17,17
     t.font,t.fonts = 'Verdana',{main={11.4},list={11.4,true},sends={11.4,true},header={15.6,false,'Arial'},bold={13.9,true}}
+  end
+  if t.layout=='echolot' then
+    -- Lists are 23 pt rows (fxlist.font [16 23]). Every mixer label is Arial (user_font0/13/14/15, lb_font): the name 11 px bold (measured), the others 9-11 px;
+    -- gfx sizes about 1.27 x the pixel em. Its 100% art is shown at twice the size (1 art px = 1 pt).
+    t.row_height,t.send_row_height = 23,23
+    t.font,t.fonts = 'Arial',{main={11.4},list={14},sends={14},header={13.6,true},bold={14}}
   end
   if t.layout=='part' then
     -- Lists are 17 pt rows (insert slot 34 px); every mixer label is Tahoma regular, user_font7 (24 px, an em of 12 pt: a gfx size of about 15).

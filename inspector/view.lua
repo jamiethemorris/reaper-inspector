@@ -3106,6 +3106,174 @@ function M:lowerrl(s,W,H,c)
   end
   self.ox=self.ox-bx;self.mx=self.mx+bx
 end
+-- Echolot (mawi; FeedTheCat's mod): one flat mixer script, a 102 pt cell (a 98 pt card between 2 pt borders of its own background art) of design height 702, written in points
+-- on a 100% art set that REAPER shows at twice the size (1 art px = 1 pt). The racks' box hangs from the top (below the FX header); every other block hangs from the bottom.
+-- The script hides blocks by the strip's height (FX and its bypass light below 358 pt, routing below 343, polarity and automation below 324, the buttons below 300) and so has no
+-- racks' box on a short strip; the Inspector keeps three rows by lowering everything above the fader (shortening it, to 100 pt at the least), then dropping routing and
+-- polarity/automation. Narrower than 102 pt the rows of four buttons squeeze their gaps and the fader group slides left; wider, the arrangement is centred and the racks and meter grow.
+local EC_BOXMIN,EC_GAP=75,4                                      -- three 23 pt rows and the rack code's 6 pt of dividers
+function M:ecrows(s,H,W)
+  local g={mt=s.master,S=W-102,ey=20,rx=6,rw=W-10,o=H-702}
+  local o=g.o
+  g.hdr=H>=358;g.io=H>=343;g.pe=H>=324
+  local function need() local top=g.io and 366 or g.pe and 383 or 407;return top,math.max(0,g.ey+EC_BOXMIN+EC_GAP-(top+o)) end
+  local top,D=need()
+  if D>57 and g.io then g.io=false;top,D=need() end
+  if D>57 and g.pe then g.pe=false;top,D=need() end
+  D=math.min(57,D);g.D=D
+  g.eh=math.max(EC_BOXMIN,math.min(342+o,top+o+D-EC_GAP-g.ey))      -- (the script's box ends at design y 362)
+  g.Yt=function(yd) return yd+o+D end                                 -- a block above the fader moves down with the fader's top
+  g.Yb=function(yd) return yd+o end
+  g.ft=477+o+D;g.F=157-D;g.my=486+o+D;g.mh=129-D
+  return g
+end
+function M:ecback(s,H,W,g,c)
+  local bm,th=self.bitmaps,self.theme
+  -- what REAPER puts under the translucent footer of the background art: the track's colour, else the theme's selected / unselected panel colour
+  local under=c.custom and c.base or th.colors[c.selected and 'col_seltrack' or 'col_seltrack2'] or {52,54,55}
+  self:rect(0,0,W,H,under)
+  if not (bm and bm:draw(c.selected and 'mcp_bgsel' or 'mcp_bg',0,self.ox,0,W,H,self.scale,true)) then self:rect(0,0,W,H-8,{48,50,51}) end
+  -- the inserts' backdrop fills the script's whole box (the rows, whole numbers of 23 pt, stop short of its foot)
+  if bm then bm:draw('mcp_fxlist_bg',0,self.ox+g.rx,g.ey,g.rw,g.eh,self.scale,true) end
+end
+function M:lowerec(s,W,H,c)
+  local m,bm,mt,g,sel=self.model,self.bitmaps,s.master,c.g,c.selected
+  local sc,S=self.scale,g.S
+  local Yt,Yb=g.Yt,g.Yb
+  local colors=c.colors
+  if bm then bm.clip={self:pxx(0),self:pxx(W)} end                          -- art that overhangs a narrow strip is cut at its edge
+  local function image(name,x,y,w,h,state,frames) return bm and bm:draw(name,state or 0,x+self.ox,y,w,h,sc,true,nil,frames) end
+  local function button(id,name,x,y,action,menu,w,h)
+    w,h=w or 20,h or 20
+    local state=inside({x=x,y=y,w=w,h=h},self.mx,self.my) and ((self.g.mouse_cap&1)~=0 and 2 or 1) or 0
+    if not image(name,x,y,w,h,state) then
+      local pl=PLAIN[name:gsub('^track_','mcp_')] or {''}
+      self:rect(x,y,w,h,{78,78,78});self:rect(x+1,y+1,w-2,h-2,{62,62,62});self:text(pl[1],x,y,w,h,pl[2] or {150,150,150},'main',1)
+    end
+    return self:hit(id,x,y,w,h,action,menu)
+  end
+  local function inert(name,x,y) image(name,x,y,20,20) end                  -- (the master's menu button has no Inspector equivalent)
+  -- Two-state links: base art is the "+" (hover and press colour it), the overlay the lettering and rail (never drawn in its hover states: they carry a "+" of their own)
+  local function link(name,x,y,hx,hy,hw,hh,action,menu)
+    local state=inside({x=hx,y=hy,w=hw,h=hh},self.mx,self.my) and ((self.g.mouse_cap&1)~=0 and 2 or 1) or 0
+    local L=S>0 and S//2 or 0
+    image(name,W-16,y,10,10,state)
+    image(name..'_ol',L+86,y,10,10,0)
+    return self:hit(name:match('mcp_io') and 'IO' or 'FX',hx,hy,hw,hh,action,menu)
+  end
+  local armed=s.I_RECARM~=0 and not mt
+  -- FX header (with its bypass light) and routing row
+  local fxon=s.I_FXEN~=0
+  if g.hdr then
+    local nm=#s.fx==0 and 'mcp_fx_empty' or fxon and 'mcp_fx_norm' or 'mcp_fx_dis'
+    link(nm,0,5,22,2,W-28,16,function() if #s.fx==0 then self:add_fx(s) else m:fx_chain(s) end end,function() self:fx_menu(s) end)
+    local bx=6
+    local bst=inside({x=bx,y=3,w=14,h=14},self.mx,self.my) and ((self.g.mouse_cap&1)~=0 and 2 or 1) or 0
+    image(#s.fx==0 and 'track_fxempty_v' or fxon and 'track_fxon_v' or 'track_fxoff_v',bx,5,10,10,bst)
+    self:hit('I_FXEN',bx-1,3,14,14,function() m:toggle(s,'I_FXEN') end)
+  end
+  if g.io then
+    local io='mcp_io'..(#s.sends>0 and '_s' or '')..((s.receives or 0)>0 and '_r' or '')..(s.B_MAINSEND==0 and '_dis' or '')
+    link(io,0,Yt(364),4,Yt(364)-2,W-8,16,function() self:show_routing(s) end,function() self:send_menu(s) end)
+  end
+  local mode=math.floor(s.I_AUTOMODE)
+  local envart=(ENV[mode] or 'mcp_env'):gsub('^mcp_','track_')
+  local function envact()
+    local items={}
+    for i,label in ipairs(AUTOMODES) do items[#items+1]={label,function() m:set(s,'I_AUTOMODE',i-1) end,checked=mode==i-1} end
+    self:menu(items)
+  end
+  -- Rows of four 20 pt buttons: the gap shrinks below 102 pt
+  local pitch=math.max(20,math.min(24,math.floor((W-26)/3)))
+  local x0=math.floor((W-20-3*pitch)/2)
+  local function col(i) return x0+i*pitch end
+  if g.pe then
+    if mt then inert('mixer_menu',col(0),Yt(383))
+    else
+      button('B_PHASE',s.B_PHASE~=0 and 'track_phase_inv' or 'track_phase_norm',col(0),Yt(383),function() m:toggle(s,'B_PHASE') end)
+      button('I_AUTOMODE',envart,col(1),Yt(383),envact)
+    end
+  end
+  local y=Yt(407)
+  button('B_MUTE',s.B_MUTE~=0 and 'track_mute_on' or 'track_mute_off',col(0),y,function() m:toggle(s,'B_MUTE') end)
+  button('I_SOLO',s.I_SOLO~=0 and 'track_solo_on' or 'track_solo_off',col(1),y,function() m:toggle(s,'I_SOLO') end)
+  if mt then
+    button('I_AUTOMODE',envart,col(2),y,envact)
+    button('MONO',s.mono and 'track_mono' or 'track_stereo',col(3),y,function() m:master_mono(s) end)
+  else
+    button('I_RECARM',s.I_RECARM~=0 and 'track_recarm_on' or 'track_recarm_off',col(2),y,function() m:toggle(s,'I_RECARM') end)
+    button('I_RECMON',s.I_RECMON==2 and 'track_monitor_auto' or s.I_RECMON==1 and 'track_monitor_on' or 'track_monitor_off',col(3),y,function() m:toggle(s,'I_RECMON') end)
+  end
+  -- Pan: a 34 pt knob (frame strips of 129 knobs) with a small width knob beside it in stereo pan, two knobs in dual pan; the readouts below
+  local pmode=s.I_PANMODE
+  local dual=pmode==6
+  local two=pmode==5                                                       -- (the master shows its width knob too)
+  local kp,kw=dual and 'D_DUALPANL' or 'D_PAN',dual and 'D_DUALPANR' or 'D_WIDTH'
+  local vp,vw=dual and s.D_DUALPANL or s.D_PAN,dual and s.D_DUALPANR or s.D_WIDTH
+  local function knob(key,stack,frames,x,yy,w,h,v)
+    local f=clamp(math.floor((clamp(v,-1,1)+1)/2*(frames-1)+.5),0,frames-1)
+    if not image(stack,x,yy,w,h,f,frames) then self:pointer(s,x,yy,math.min(w,h),{200,200,200},true,v) end
+    self:pan_hit(s,key,x,yy,w,h)
+  end
+  local ky=Yt(432)
+  local ink=colors.col_tcp_text or {219,245,255}
+  local lw=W-4
+  if dual then
+    local k1=(W-78)//2
+    knob('D_DUALPANL','mcp_pan_knob_stack_1',129,k1,ky,34,34,vp);knob('D_DUALPANR','mcp_wid_knob_stack_2',129,k1+44,ky,34,34,vw)
+    self:text(pan_label(vp),2,Yt(464)+1,lw//2,13,ink,'main',1);self:text(pan_label(vw),2+lw//2,Yt(464)+1,lw//2,13,ink,'main',1)
+  else
+    local k1=(W-34)//2
+    if two then k1=math.min(k1,W-65) end
+    knob('D_PAN','mcp_pan_knob_stack_1',129,k1,ky,34,34,vp)
+    if two then knob('D_WIDTH','mcp_wid_knob_stack_1',129,k1+38,Yt(437),24,27,vw) end
+    self:text(pan_label(vp),2,Yt(464)+1,lw,13,ink,'main',1)
+  end
+  -- Fader on its ruler (the cap's centre travels from the +12 mark to the -inf mark), the meter beside it
+  local sh=S>=0 and S//2 or -((-S)//2)
+  local fx,ft,F=40+sh,g.ft,g.F
+  self.layout={T=g.ey,S=ft,B=ft+F,L=H-g.ey,meter=true}
+  if g.D==0 then image('mcp_volbg',fx,ft,22,F)
+  else
+    -- A shortened fader: the printed ruler would be spliced, so the slot and the ruler are drawn here, each mark where the fader's own mapping puts it
+    self:rect(fx+9,ft+8,4,F-20,{23,25,26})
+    local top,bottom=ft+13,ft+F-15
+    local function ypos(gain) return bottom-self.mapping.to_position(gain)*(bottom-top) end
+    local rc={110,112,122}
+    for _,d in ipairs({12,9,6,3,0,-3,-6,-9,-12,-15,-18,-21,-24,-27,-30,-36,-42}) do self:rect(fx-10,ypos(10^(d/20))-.5,6,1,rc) end
+    local last=-1e9                                                       -- numbers keep their size and true marks; one that would crowd its neighbour is left out
+    for _,d in ipairs({12,6,0,-6,-12,-18,-24,-30,-42}) do
+      local ly=ypos(10^(d/20));if ly-last>=11 then self:text(tostring(d),fx-28,ly-5,16,10,rc,'main',2);last=ly end
+    end
+    if bottom-last>=11 then self:text('-inf',fx-28,bottom-5,16,10,rc,'main',2) end
+  end
+  local top,bottom=ft+13,ft+F-15                                         -- (measured: the cap's centre runs from 13 pt below the slot's top to 15 pt above its foot)
+  local fy=bottom-self.mapping.to_position(s.D_VOL)*(bottom-top)
+  local cap=mt and 'mcp_master_volthumb' or 'mcp_volthumb'
+  local tw,th_=21,37
+  if bm then local w,h=bm:size(cap,true);if w then tw,th_=w,h end end
+  if not image(cap,fx+11-tw/2,fy-th_/2) then self:rect(fx+1,fy-15,20,30,{150,150,150}) end
+  local hit=self:hit('D_VOL',fx,ft,22,F)
+  hit.kind,hit.token,hit.top,hit.bottom,hit.fader_y='D_VOL',s,top,bottom,fy
+  local mx=67+sh;local mw=math.max(14,math.min(W-7-mx,S>0 and 28+S-S//2 or 28))
+  self:rect(mx,g.my,mw,g.mh,{36,37,38})                                    -- (the well REAPER draws under the frame art)
+  image('meter_bg_mcp',mx,g.my,mw,g.mh)
+  self:meter(s,{x=mx+1,y=g.my+1,w=mw-2,h=g.mh-2,font='main',first=6,last=54,step=12,scale_color={119,119,120},readout_color={152,152,152}},colors)
+  if bm then bm.clip=nil end
+  -- Volume readout, name (the selected track's name sits on a gold field), number tile
+  local w90=math.min(90,W-8);local lx=(W-w90)//2
+  self:text(s.D_VOL>0 and gaintext(s.D_VOL)..'dB' or '-inf',lx,Yb(630),w90,16,{198,203,206},'bold',1)
+  local ny=Yb(652)
+  self:rect(lx,ny,w90,16,sel and {230,189,125} or {38,40,41})
+  self:text(mt and 'MASTER' or s.name,lx,ny,w90,16,sel and {31,31,31} or armed and {207,95,95} or ink,'header',1)
+  if not mt then
+    self:hit('name',lx,ny,w90,16).double=function() self:rename(s) end
+    if bm then bm.clip={self:pxx(0),self:pxx(W)} end
+    image(sel and 'mcp_idxbg_sel' or 'mcp_idxbg',lx,Yb(671.5),w90,16)
+    if bm then bm.clip=nil end
+    self:text(('%d'):format(s.IP_TRACKNUMBER),lx,Yb(672.5),w90,16,{189,189,193},'bold',1)
+  end
+end
 -- Default 3.0 and 4.0, REAPER's old stock mixer strip. One layout on two geometries: the panel (from the strip number or name row down to the
 -- footer) is 373 pt tall in the native mixer (measured in both), the racks take what is left; a shorter strip keeps four rack rows and shortens
 -- the fader and meter. 3.0 has no mixer script (REAPER's built-in positions, measured from the native strip); 4.0's are its script's.
@@ -3318,6 +3486,7 @@ function M:strip(s,W,H)
   local ptl=self.theme and self.theme.layout=='part'
   local d34=self.theme and self.theme.layout=='default34'
   local rll=d34 or self.theme and self.theme.layout=='realogix' -- Default 3.0/4.0 hang their racks in the same kind of box
+  local ec=self.theme and self.theme.layout=='echolot'
   local fm=ix or self.theme and self.theme.layout=='flatmadness' -- iconEX's racks are the same kind of list cells and handles
   local stock6=self.theme and self.theme.stock6
   local compact6=stock6 and self.theme.compact6
@@ -3350,6 +3519,8 @@ function M:strip(s,W,H)
   if ptl then L=H-(pg.ey+pg.eh) end -- paRt: the racks' backdrop, a share of the strip's height
   local lg=rll and (d34 and self:d34rows(s,H,W) or self:rlrows(s,H,W))
   if rll then L=H-(lg.ey+lg.eh) end -- Realogix: the script's racks' box, kept at three rows
+  local eg=ec and self:ecrows(s,H,W)
+  if ec then L=H-(eg.ey+eg.eh) end -- Echolot: the same, from the script's own box
   local showInFX=stock6 and L>=400
   local inh=showInFX and 54 or L>=350 and 42 or 22
   local label_h=stock6 and self.theme.label_h or 26
@@ -3363,7 +3534,7 @@ function M:strip(s,W,H)
   -- FX and send racks
   local row=self.theme and self.theme.row_height or 17
   local selected=not s.owner
-  local themed=bm and (stock6 or v3 or g80 or frx or md or cx or fm or nv or hz or imp or rtl or ptl or rll or bm.full_artwork)
+  local themed=bm and (stock6 or v3 or g80 or frx or md or cx or fm or nv or hz or imp or rtl or ptl or rll or ec or bm.full_artwork)
   local srow=self.theme and self.theme.send_row_height or row -- 80gray's send rows are taller than its inserts
   if themed and not s.master and self.r.IsTrackSelected then selected=self.r.IsTrackSelected(s.track) end
   -- CSIX writes its own text colours (selected, other) into each edition's mixer script. Its master
@@ -3380,7 +3551,7 @@ function M:strip(s,W,H)
   -- theme's unselected grey otherwise; the racks see the track's colour a quarter dimmer.
   local tint=cx and (selected and (custom and base or colors.col_seltrack) or colors.col_seltrack2) or nil
   if cx and custom then under=mul(base,.75) end
-  local hc={g=hg or ig or rg or pg or lg,base=base,custom=custom,colors=colors,selected=selected}
+  local hc={g=hg or ig or rg or pg or lg or eg,base=base,custom=custom,colors=colors,selected=selected}
   if hz then self:hzback(s,H,W,hg,hc)
   elseif imp2 then self:oldback(s,H,W,ig,hc)
   elseif imp then self:impback(s,H,W,ig,hc)
@@ -3388,6 +3559,7 @@ function M:strip(s,W,H)
   elseif ptl then self:ptback(s,H,W,pg,hc)
   elseif d34 then self:d34back(s,H,W,lg,hc)
   elseif rll then self:rlback(s,H,W,lg,hc)
+  elseif ec then self:ecback(s,H,W,eg,hc)
   elseif nv then -- the mixer's colour, the strip's grey, and a white wash over a selected strip (alpha 28%)
     self:rect(0,0,W,H,colors.col_mixerbg or {40,40,40});self:rect(0,0,ng.rw,H,{64,64,64})
     if selected then self:rect(0,0,ng.rw,H,{255,255,255,self.theme.param('color_SelectionOpacity_param',28)*2.55}) end
@@ -3408,6 +3580,7 @@ function M:strip(s,W,H)
   elseif rtl then Y0,RX=rg.ey,rg.rx;W=rg.rw;self.ox=self.ox+RX;self.mx=self.mx-RX -- the script's racks' box (3 pt in from its 80 pt strip)
   elseif ptl then Y0,RX=pg.ey,pg.rx;W=pg.rw;self.ox=self.ox+RX;self.mx=self.mx-RX -- paRt's racks' box, 5 pt in from the strip's edge
   elseif rll then Y0,RX=lg.ey,lg.rx;W=lg.rw;self.ox=self.ox+RX;self.mx=self.mx-RX -- Realogix's racks' box, 5 pt in from the strip's edge
+  elseif ec then Y0,RX=eg.ey,eg.rx;W=eg.rw;self.ox=self.ox+RX;self.mx=self.mx-RX -- Echolot's racks' box, 6 pt in from its cell's edge
   elseif themed and not fm then -- (Flat Madness ships this art but its mixer does not draw it)
     local function backing(name) return bm:draw(name,0,self.ox,0,W,T+1,self.scale,true) end
     if not (selected and backing('mcp_extmixbgsel')) then backing('mcp_extmixbg') end
@@ -3436,7 +3609,7 @@ function M:strip(s,W,H)
   local m=self.model
   -- Each list has its own background image under its cells (PhaseLab darkens only the inserts).
   -- Stock art is only a divider where the Inspector already draws one, so it is left out there.
-  local listbg=bm and (compact6 or md or cx or fm or imp or rll or bm.full_artwork)
+  local listbg=bm and (compact6 or md or cx or fm or imp or rll or ec or bm.full_artwork)
   -- Mydaw's lists stop short of the strip's right edge, where the backdrop shows as a thin line.
   local edge=md and 1.5 or 0
   if nv and ng.eh>0 then bm:draw('mcp_fxlist_bg',0,self.ox,Y0,W,ng.eh-1,self.scale,true) end -- one backdrop under inserts and sends
@@ -3450,13 +3623,13 @@ function M:strip(s,W,H)
     local art=fx and (fx.offline and 'mcp_fxlist_off' or fx.enabled and 'mcp_fxlist_norm' or 'mcp_fxlist_byp') or 'mcp_fxlist_empty'
     local hover=inside({x=0,y=y,w=W,h=row},self.mx,self.my)
     if nv then if fx then self:sprite(art,hover and 1 or 0,0,y,W,row) end -- the art's own transparent edges make the cell's inset; an empty slot draws none
-    elseif hz or imp or rtl or ptl or rll then self:sprite(art,hover and 1 or 0,0,y,W,row) -- the art's own overhang and transparent edges make the 9 pt cell and its gap
+    elseif hz or imp or rtl or ptl or rll or ec then self:sprite(art,hover and 1 or 0,0,y,W,row) -- the art's own overhang and transparent edges make the 9 pt cell and its gap
     elseif fm then self:sprite(art,hover and 1 or 0,-1.5,y-1,W-1,row) -- the art's own transparent edges make the 13 pt slots and their gaps
     else self:sprite(art,hover and 1 or 0,md and .5 or -1,y,W-(md and 2.5 or 2),row) end
     if fx then
       local c=fx.offline and col('mcp_fx_offlined',{156,58,58}) or fx.enabled and col('mcp_fx_normal',{216,216,216}) or col('mcp_fx_bypassed',{160,126,59})
       local left=nv and 1 or md and 4 or cx and 3 or fm and (ix and 4 or 5) or hz and 1.5 or imp and 3 or ptl and 3 or rtl and 16 or rll and (d34 and 3 or 6) -- these themes align insert names left, as their mixers do
-      self:text(fx.label or fx.name,left or 7.5,y+(nv and .5 or -.5),W-(left and left+5 or 19.5),row,c,'list',(left and (not rll or d34)) and 0 or 1)
+      self:text(fx.label or fx.name,left or 7.5,y+(nv and .5 or -.5),W-(left and left+5 or 19.5),row,c,'list',(left and (not rll or d34)) and 0 or 1) -- (Echolot centres them, margin .5)
       self:hit('fx'..i,0,y,W,row,function(cap)
         -- same modifiers as the mixer: Shift bypass, Alt delete, Cmd chain, Shift+Cmd offline, Alt+Shift(+Cmd) slot on selected (all) tracks
         local shift,cmd,alt=(cap&8)~=0,(cap&4)~=0,(cap&16)~=0
@@ -3482,13 +3655,13 @@ function M:strip(s,W,H)
   end
   for i=1,sendrows do
     local send=s.sends[i+self.send_offset];local y=sy+(i-1)*srow
-    local art=not send and 'mcp_sendlist_empty' or send.kind=='midi' and (nv and 'mcp_sendlist_norm' or 'mcp_sendlist_midihw') or send.mute and 'mcp_sendlist_mute' or 'mcp_sendlist_norm'
+    local art=not send and 'mcp_sendlist_empty' or send.kind=='midi' and ((nv or ec) and 'mcp_sendlist_norm' or 'mcp_sendlist_midihw') or send.mute and 'mcp_sendlist_mute' or 'mcp_sendlist_norm'
     local hover=inside({x=0,y=y,w=W,h=srow},self.mx,self.my)
-    if nv then if send then self:sprite(art,hover and 1 or 0,0,y,W,srow) end elseif hz or imp or rtl or ptl or rll then self:sprite(art,hover and 1 or 0,0,y,W,srow) elseif fm then self:sprite(art,hover and 1 or 0,-2,y-1,W-1.5,srow) else self:sprite(art,hover and 1 or 0,-1,y,W-3,srow) end
+    if nv then if send then self:sprite(art,hover and 1 or 0,0,y,W,srow) end elseif hz or imp or rtl or ptl or rll or ec then self:sprite(art,hover and 1 or 0,0,y,W,srow) elseif fm then self:sprite(art,hover and 1 or 0,-2,y-1,W-1.5,srow) else self:sprite(art,hover and 1 or 0,-1,y,W-3,srow) end
     if send then
       local c=send.kind=='midi' and col('mcp_send_midihw',{70,185,254}) or send.mute and col('mcp_sends_muted',{228,94,101}) or col('mcp_sends_normal',{254,207,103})
       local knob=send.kind~='midi' and not hz and not imp and not rtl and not ptl and not d34 and bm and bm:get('mcp_send_knob_stack')
-      self:text(send.name,nv and 1 or hz and 1.5 or imp and 3 or ptl and 3 or rtl and 16 or fm and 5 or rll and (d34 and 3 or 5) or 6,y+(nv and .5 or -.5),rtl and W-21 or ptl and W-6 or W-14-(knob and 15 or 0),srow,c,'sends',0)
+      self:text(send.name,nv and 1 or hz and 1.5 or imp and 3 or ptl and 3 or rtl and 16 or fm and 5 or rll and (d34 and 3 or 5) or ec and 4 or 6,y+(nv and .5 or -.5),rtl and W-21 or ptl and W-6 or W-14-(knob and 15 or 0),srow,c,'sends',0)
       if knob then
         -- One square frame per level; resized smoothly because the rack row is smaller than a frame.
         local frames=math.max(1,math.floor(knob.h/knob.w))
@@ -3516,7 +3689,7 @@ function M:strip(s,W,H)
     local y=sy+sendrows*srow+2;local on=s.B_MAINSEND~=0
     self:rect(0,y-1.5,W,1,{255,255,255,40})
     local hover=inside({x=0,y=y,w=W,h=srow},self.mx,self.my)
-    if nv then self:sprite(on and 'mcp_fxlist_norm' or 'mcp_sendlist_mute',hover and 1 or 0,0,y,W,srow) elseif hz or imp or rtl or ptl or rll then self:sprite(on and 'mcp_fxlist_norm' or 'mcp_sendlist_mute',hover and 1 or 0,0,y,W,srow) elseif fm then self:sprite(on and 'mcp_fxlist_norm' or 'mcp_sendlist_mute',hover and 1 or 0,-1.5,y-1,W-1,srow) else self:sprite(on and 'mcp_fxlist_norm' or 'mcp_sendlist_mute',hover and 1 or 0,-1,y,W-2,srow) end
+    if nv then self:sprite(on and 'mcp_fxlist_norm' or 'mcp_sendlist_mute',hover and 1 or 0,0,y,W,srow) elseif hz or imp or rtl or ptl or rll or ec then self:sprite(on and 'mcp_fxlist_norm' or 'mcp_sendlist_mute',hover and 1 or 0,0,y,W,srow) elseif fm then self:sprite(on and 'mcp_fxlist_norm' or 'mcp_sendlist_mute',hover and 1 or 0,-1.5,y-1,W-1,srow) else self:sprite(on and 'mcp_fxlist_norm' or 'mcp_sendlist_mute',hover and 1 or 0,-1,y,W-2,srow) end
     local c=on and col('mcp_fx_normal',{216,216,216}) or col('mcp_sends_muted',{228,94,101})
     self:text(s.parent and 'Parent send' or 'Master send',hz and 1.5 or imp and 3 or ptl and 3 or rtl and 16 or 7.5,y-.5,hz and W-3 or imp and W-6 or ptl and W-6 or rtl and W-21 or W-19.5,srow,c,'list',(hz or imp or rtl or ptl) and 0 or 1)
     if not s.owner and self.root.shown_main then self:rect(2.5,y+2,1.5,srow-4,c) end
@@ -3524,10 +3697,11 @@ function M:strip(s,W,H)
   end
   scrollbar('send_bar',#s.sends,sendrows,self.send_offset,sy,srow)
 
-  if frx or nv or hz or imp or rtl or ptl or rll then W=fullW;self.ox=self.ox-RX;self.mx=self.mx+RX end
+  if frx or nv or hz or imp or rtl or ptl or rll or ec then W=fullW;self.ox=self.ox-RX;self.mx=self.mx+RX end
   if ptl then return self:lowerpt(s,W,H,hc) end
   if d34 then return self:lowerd34(s,W,H,hc) end
   if rll then return self:lowerrl(s,W,H,hc) end
+  if ec then return self:lowerec(s,W,H,hc) end
   if rtl then return self:lowerrt(s,W,H,hc) end
   if nv then return self:lowernvk(s,W,H,{g=ng,base=base,custom=custom,colors=colors,selected=selected}) end
   if hz then return self:lowerhz(s,W,H,hc) end
