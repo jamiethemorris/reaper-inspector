@@ -2,7 +2,7 @@
 
 A dockable, single-selected-track Lua `gfx` inspector, independent of REAPER's mixer. Runtime dependencies: REAPER's built-in Lua/ReaScript and `gfx` only. No ReaImGui, SWS, JS extension, package installation, action registration by the script, or theme installation.
 
-**Verification status (0.6.0):** the three hand-made layouts (Reapertips v1.90, Reapertips v1.95, REAPER Default 7) were each checked offline against a screenshot of the native mixer strip in that theme. That comparison uses a stand-in renderer (`tests/preview.py`), so it proves geometry and artwork handling, not REAPER's own text rendering, menus or control behaviour. 0.2.0 has been run in REAPER 7.86 on macOS; 0.4.0 has been seen running in REAPER with Default 7 and Flat Madness (two strips, archive artwork, plain strip); the Default 7 layout, live Theme Adjuster reading, rename and several click behaviours added since 0.2.0 have **not yet been confirmed in REAPER**. All 35 offline synthetic-host tests pass.
+**Verification status (0.7.0):** each hand-made theme family has been checked in REAPER on macOS (at least one representative edition per family; secondary colour editions and some pan modes were checked offline only via `tests/preview.py`). All 67 offline synthetic-host tests pass. Non-macOS Retina paths and a live ReaPack install remain unverified.
 
 ## Install
 

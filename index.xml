@@ -54,6 +54,16 @@
         <source file="inspector/unzip.lua">https://github.com/jamiethemorris/reaper-inspector/raw/v0.6.0/inspector/unzip.lua</source>
         <source file="inspector/view.lua">https://github.com/jamiethemorris/reaper-inspector/raw/v0.6.0/inspector/view.lua</source>
       </version>
+      <version name="0.7.0" author="jamiethemorris" time="2026-11-22T21:18:00Z">
+        <changelog><![CDATA[Hand-made layouts for Default 6 (and derivatives such as Neptune VI and PhaseLab), Default 3.0 & 4.0, 80gray, theFRXST, Mydaw, CSIX (BASIC, AE-Narrow, SX), Flat Madness, iconEX, nvk_THEME, Horizon, WT Imperial V5, WT Imperial & Imperial LCS-mod, ReaTools Ultimate, paRt, Realogix, and Echolot (FeedTheCat mod). Unrecognised or unreadable themes now borrow REAPER's installed stock Default 7 strip (with an experimental menu option to try the theme's own artwork). Added stereo pan/width and dual-pan controls, inserts-only master rack with per-channel peak and loudness readouts, steady input labels, and -inf meter floor.]]></changelog>
+        <source main="main">https://github.com/jamiethemorris/reaper-inspector/raw/v0.7.0/Reaper%20Inspector.lua</source>
+        <source file="inspector/app.lua">https://github.com/jamiethemorris/reaper-inspector/raw/v0.7.0/inspector/app.lua</source>
+        <source file="inspector/bitmaps.lua">https://github.com/jamiethemorris/reaper-inspector/raw/v0.7.0/inspector/bitmaps.lua</source>
+        <source file="inspector/model.lua">https://github.com/jamiethemorris/reaper-inspector/raw/v0.7.0/inspector/model.lua</source>
+        <source file="inspector/theme.lua">https://github.com/jamiethemorris/reaper-inspector/raw/v0.7.0/inspector/theme.lua</source>
+        <source file="inspector/unzip.lua">https://github.com/jamiethemorris/reaper-inspector/raw/v0.7.0/inspector/unzip.lua</source>
+        <source file="inspector/view.lua">https://github.com/jamiethemorris/reaper-inspector/raw/v0.7.0/inspector/view.lua</source>
+      </version>
     </reapack>
   </category>
   <metadata>
