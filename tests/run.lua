@@ -2468,10 +2468,17 @@ test('send knobs: Default 4.0, Horizon and WT Imperial V5 draw the theme\'s own 
     if s.a==1 then whole=whole+1;eq(s.b[5],art.y+frame*art.w) else assert(math.abs(s.a-.125)<1e-9);eq(s.b[5],art.y) end
   end
   eq(whole,1);eq(v.bitmaps.alpha,nil)
-  -- WT Imperial V5: disc and cap on every send row; its older siblings, whose art was not measured, none.
+  -- WT Imperial V5: disc and cap on every send row; WT Imperial (identical art, the same 14 pt rows) the same, at the same place in its row.
+  -- Imperial LCS-mod's 12 pt rows would leave the 16 pt disc overhanging by 4 pt (V5's own overhang is 2): none.
   v=run('WT_Imperial_V5_WIPsnapshot_build.ReaperThemeZip',94,1092,false);eq(#v.bitmaps.missing,0)
   assert(v.send_box.rows>=3);eq(#blits('mcp_sendlist_knob_bg%.png$'),v.send_box.rows);eq(#blits('mcp_sendlist_knob%.png$'),v.send_box.rows)
-  for _,f in ipairs({'WT_Imperial.ReaperThemeZip','Imperial_LCS-mod-dark_v3.ReaperThemeZip'}) do v=run(f,94,1092,false);eq(#blits('mcp_sendlist_knob%.png$'),0) end
+  local v5disc=blits('mcp_sendlist_knob_bg%.png$')[1].b
+  v=run('WT_Imperial.ReaperThemeZip',94,1092,false);eq(#v.bitmaps.missing,0);eq(v.theme.layout,'imperial2');eq(v.theme.row_height,14)
+  assert(v.send_box.rows>=3);eq(#blits('mcp_sendlist_knob_bg%.png$'),v.send_box.rows);eq(#blits('mcp_sendlist_knob%.png$'),v.send_box.rows)
+  local wtdisc=blits('mcp_sendlist_knob_bg%.png$')[1].b
+  eq(wtdisc[10],v5disc[10]);eq(wtdisc[11],v5disc[11]) -- (the disc's own size, in the same 14 pt rows)
+  for _,k in ipairs(blits('mcp_sendlist_knob_bg%.png$')) do assert(k.a==1 or math.abs(k.a-.125)<1e-9) end -- (a real send's whole, an empty slot's faint)
+  v=run('Imperial_LCS-mod-dark_v3.ReaperThemeZip',94,1092,false);eq(v.theme.row_height,12);eq(#blits('mcp_sendlist_knob%.png$'),0);eq(#blits('mcp_sendlist_knob_bg%.png$'),0)
 end)
 
 test('cosmetic fixes: Horizon/paRt meter glyph, Imperial LCS master logo, ReaTools master accent bands', function()
@@ -2630,6 +2637,43 @@ test('Freeze button: inspected strip only, never overlapping or losing rack rows
   local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),theme,{output_strip=false})
   h.selected=h.master;h.master.color=nil;g.ext_retina=2;g.w=240;g.h=1800;v:frame();assert(v.snapshot.master);eq(v.hits.freeze,nil);h.selected=h.a
   eq(#h.writes,0)
+end)
+
+test('Master / Parent label: its capitals are centred on its face like Freeze\'s, so side by side they share one baseline', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  h.GetOS=function() return 'macOS-arm64' end
+  local Theme=dofile('inspector/theme.lua')
+  local home=os.getenv('HOME')..'/Library/Application Support/REAPER/ColorThemes/'
+  local env={cache=h.cache..'/masterlabel',mkdir=function(p) os.execute('mkdir -p \"'..p..'\"') end}
+  local drawn
+  g.drawstr=function(text,...) drawn[#drawn+1]={text=text,y=g.y,flags=select(1,...)} end
+  local pairs_checked,stacked=0,0
+  for _,file in ipairs({'Default_7.0.ReaperThemeZip','Default_6.0.ReaperThemeZip','Default_4.0.ReaperThemeZip','Default_3.0.ReaperThemeZip','Horizon_Theme.ReaperThemeZip',
+      'paRt - Dark.ReaperThemeZip','WT_Imperial.ReaperThemeZip','Imperial_LCS-mod-dark_v3.ReaperThemeZip',REAPERTIPS}) do
+    local path=file:find('/',1,true) and file or home..file
+    local theme=Theme.resolve(path,env)
+    if theme then
+      local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),theme,{output_strip=false})
+      for _,parent in ipairs({false,true}) do
+        h.a.parent=parent and h.b or nil
+        for _,hgt in ipairs({340,380,409,454,520,600,700,900}) do
+          for _,w in ipairs({86,120,188}) do
+            drawn={};g.ext_retina=2;g.w=w*2;g.h=hgt*2;v:frame()
+            local label,fz
+            for _,d in ipairs(drawn) do
+              if d.text=='Master' or d.text=='Parent' then label=d end
+              if d.text=='Freeze' or d.text=='Frz' then fz=fz or d end
+            end
+            if label and fz then eq(label.y,fz.y,file..' Master/Freeze baseline at '..w..'x'..hgt);pairs_checked=pairs_checked+1 end
+            for _,d in ipairs(drawn) do if d.text=='Master send' or d.text=='Parent send' then
+              assert(d.y>=0 and d.y<=hgt*2,'stacked label is drawn inside the strip');stacked=stacked+1 end end
+          end
+        end
+      end
+      h.a.parent=nil
+    end
+  end
+  assert(pairs_checked>=20,'enough Master/Freeze pairs compared: '..pairs_checked);assert(stacked>=20,'enough stacked labels drawn: '..stacked)
 end)
 
 test('Freeze button: styling, left click (stereo / Smart-freeze / fallback / unfreeze), right-click menu and remembered option', function()

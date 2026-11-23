@@ -3664,7 +3664,8 @@ end
 --    width) turned by the level, +-150 degrees about the top (an empty slot's marker, at the minimum, measures 7 o'clock in the native strip; the maximum end
 --    of the sweep is assumed symmetric). 3.5 pt in from the end, 1 pt down. A MIDI output has none.
 --  - WT Imperial V5: the same art (a 11 x 14 pt disc and cap) flush with the row's inner end (1 pt in), centred in the row; measured from one native screenshot
---    only (its siblings WT Imperial and Imperial LCS-mod ship the same art but were not measured, so they keep no knob).
+--    only. Its siblings ship identical art and get the same placement where the row is V5's 14 pt (WT Imperial); Imperial LCS-mod's 12 pt rows (a 4 pt overhang)
+--    do not, and keep no knob.
 function M:send_knob(send,y,W,row)
   local bm,th=self.bitmaps,self.theme
   if not bm or not th then return nil end
@@ -3677,11 +3678,13 @@ function M:send_knob(send,y,W,row)
   if th.layout=='horizon' then
     local size=row-1;local kx=W-4.25-size/2
     if bm:knob_frame('mcp_send_knob_stack',level,kx+size/2+self.ox,y+(size+1)/2,self.scale,size) then x=kx end
-  elseif (th.layout=='default34' or th.layout=='imperial') and not midi then
+  elseif (th.layout=='default34' or th.layout=='imperial' or th.layout=='imperial2') and not midi then
     local size,h=bm:size('mcp_sendlist_knob_bg',true)
-    if size then
-      x=W-(th.layout=='imperial' and 1 or 3.5)-size
-      local ky=y+(th.layout=='imperial' and (row-h)/2 or 1)
+    -- (the older Imperials ship the same disc, which a row shorter than it would leave overflowing: they draw it only where the row holds it to within the 2 pt V5's native 16 pt disc overhangs its 14 pt row)
+    if size and not (th.layout=='imperial2' and h>row+2) then
+      local imp=th.layout~='default34'
+      x=W-(imp and 1 or 3.5)-size
+      local ky=y+(imp and (row-h)/2 or 1)
       bm:draw('mcp_sendlist_knob_bg',0,x+self.ox,ky,nil,nil,self.scale,true)
       bm:rotated('mcp_sendlist_knob',(2*level-1)*math.pi*5/6,x+self.ox,ky,size,self.scale)
     end
@@ -3977,7 +3980,21 @@ function M:strip(s,W,H)
     local ol=hz and 1.5 or imp and 3 or ptl and 3 or rtl and 16 or 7.5
     local owid=hz and W-3 or imp and W-6 or ptl and W-6 or rtl and W-21 or W-19.5
     if share then ol=math.min(ol,3);owid=OW-ol-2 end
-    self:text(otext,ol,y-.5,owid,srow,c,'list',(hz or imp or rtl or ptl) and 0 or 1)
+    -- The label's capitals, not its line, are centred on the height of the row's face, as the Freeze button's are on its own: Master and Freeze
+    -- beside each other then sit on one baseline, and a stacked Master send is centred in its row. (Beside the Freeze button the face is the
+    -- one the button's own art has, so the two labels agree even where the row's art differs from it.)
+    do
+      local g,sc,fy,fh=self.g,self.scale
+      local f=bm and bm:face(share and 'mcp_fxlist_norm' or oart,0,(share and FX or dx)+self.ox,y+dy,share and FW or OW+dw,srow,self.scale)
+      if f then fy,fh=self:px(y+dy)+f.y,f.h
+      else fy=self:px(y+dy+1);fh=self:px(y+dy+srow-1)-fy end
+      local top,ink_end=self:cap_ink()
+      g.setfont(2);g.set(c[1]/255,c[2]/255,c[3]/255,(c[4] or 255)/255)
+      g.x,g.y=self:pxx(ol),math.floor((2*fy+fh-top-ink_end)/2+.5)
+      local _,lh=g.measurestr(otext)
+      local centred=not (hz or imp or rtl or ptl) and g.measurestr(otext)<=owid*sc
+      g.drawstr(otext,centred and 1 or 0,self:pxx(ol+owid),g.y+math.ceil(lh)+1);g.a=1
+    end
     if not s.owner and self.root.shown_main then self:rect(2.5,y+2,1.5,srow-4,c) end
     self:hit('output',0,y,OH,srow,function() if not s.owner then self.root.choice[s.guid]=nil end end,function() self:output_menu(s) end)
     -- (beside the row: Default 3.0's mute and solo start half a point above the racks' end, which this row can pass. Under it: the next
