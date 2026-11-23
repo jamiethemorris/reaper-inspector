@@ -11,6 +11,7 @@ pillow numpy` in a private venv; the runtime itself has no such dependency.
 """
 import argparse
 import ast
+import math
 import os
 import sys
 
@@ -173,6 +174,8 @@ class Gfx:
         mode = int(self.t['mode'])
         if piece.size != (dw, dh):
             piece = piece.resize((dw, dh), Image.NEAREST if mode & 4 else Image.BILINEAR)
+        if rot:  # gfx.blit's rotation: radians, clockwise, about the centre
+            piece = piece.rotate(-math.degrees(float(rot)), resample=Image.BILINEAR)
         a = max(0, min(1, float(self.t['a'])))
         if mode & 2:
             piece.putalpha(255)
@@ -243,6 +246,7 @@ def host(lua, sc):
         ColorFromNative=lambda c: ((int(c) >> 16) & 255, (int(c) >> 8) & 255, int(c) & 255),
         GetMediaTrackInfo_Value=lambda t, k: vals(t).get(k, 0),
         GetTrackNumSends=lambda t, cat: len(tracks[t]['sends']) if cat == 0 else 0,
+        AnyTrackSolo=lambda p: bool(sc.get('anysolo')),
         GetTrackSendName=lambda t, i, *a: (True, tracks[t]['sends'][int(i)][0]),
         GetTrackSendInfo_Value=lambda t, cat, i, k: send(t, i, k),
         GetMIDIOutputName=lambda i, *a: (True, sc.get('midiout') or ''),

@@ -2051,7 +2051,7 @@ test('ReaTools (Classic, Dark, DarkBlack): the script\'s 80 pt strip on a printe
   -- The native screenshot's strip: 80 pt wide, 785 pt tall (the script's 957 pt design less 172 pt; every box measured against it and the script).
   at(80,785);eq(#v.bitmaps.missing,0);local k=v.hits
   eq(v.send_box.rows,1);eq(v.send_bar,nil) -- one send fills the one-row rack, but no scrollbar sliver at the row's end (measured: 8 x 16 px of 153 grey over the face at 2 px/pt)
-  box(k.fx1,3,20,73,18);box(k.send1,3,132,73,18);box(k.output,3,152,73,18);box(k.I_RECINPUT,5,192,69,18);box(k.I_RECMODE,5.75,210,55.25,17);box(k.INFX,61,210,12,17)
+  box(k.fx1,3,20,73,18);box(k.send1,3,132,73,18);box(k.output,3,152,44,18);box(k.freeze,47,152,29,18);box(k.I_RECINPUT,5,192,69,18);box(k.I_RECMODE,5.75,210,55.25,17);box(k.INFX,61,210,12,17)
   box(k.I_AUTOMODE,5,245,69,17);box(k.FX,6,279,48,19);box(k.I_FXEN,54,276,21,28);box(k.D_PAN,23,304,34,36);box(k.I_RECMON,9,370,28,20);box(k.I_RECARM,41,370,28,20)
   box(k.I_SOLO,9,395,28,20);box(k.B_MUTE,41,395,28,20);box(k.D_VOL,12,422,28,235);box(k.meter,57,420.5,12.5,232);box(k.B_PHASE,22,670,31,26);box(k.name,4,697,73,15);box(k.IO,8,734,60,26)
   -- Stereo pan (a width knob) and dual pan (two bars of knobs): neither overlaps the other.
@@ -2428,6 +2428,288 @@ test('Echolot (FeedTheCat mod): the script\'s 102 pt strip, racks kept at three 
   assert(n==1);os.execute('mkdir -p \"'..env.cache..'/changed\"')
   local f2=assert(io.open(env.cache..'/changed/rtconfig.txt','w'));f2:write(changed);f2:close()
   eq(assert(Theme.resolve(env.cache..'/changed',env)).layout,'generic')
+end)
+
+test('send knobs: Default 4.0, Horizon and WT Imperial V5 draw the theme\'s own knob art on each send row, turned or framed by the send level', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  h.GetOS=function() return 'macOS-arm64' end
+  local Theme=dofile('inspector/theme.lua')
+  local home=os.getenv('HOME')..'/Library/Application Support/REAPER/ColorThemes/'
+  local env={cache=h.cache..'/sendknobs',mkdir=function(p) os.execute('mkdir -p "'..p..'"') end}
+  local alphas={}
+  g.blit=function(...) g.blits[#g.blits+1]={...};alphas[#g.blits]=g.a end
+  local function blits(pat) local r={};for i,b in ipairs(g.blits) do if (g.images[b[1]] or ''):find(pat) then r[#r+1]={b=b,a=alphas[i]} end end return r end
+  local function run(file,w,hgt,midi)
+    local t=assert(Theme.resolve(home..file,env))
+    local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),t,{output_strip=false})
+    if midi then h.a.values.I_MIDIHWOUT=0;h.GetMIDIOutputName=function() return true,'MIDI Interface' end
+    else h.a.values.I_MIDIHWOUT=-1;h.GetMIDIOutputName=function() return false,'' end end
+    h.a.values.I_PANMODE=3;g.ext_retina=2;g.w=w*2;g.h=hgt*2;g.blits={};alphas={};g.calls={};v:frame()
+    return v
+  end
+  -- Default 4.0: a disc and a cap turned from the minimum (7 o'clock) by the level; empty slots show the faint disc at the minimum; a MIDI output has none.
+  local v=run('Default_4.0.ReaperThemeZip',73,818,false);eq(#v.bitmaps.missing,0)
+  local pos=v.mapping.to_position(.5)
+  local disc,cap=blits('mcp_sendlist_knob_bg%.png$'),blits('mcp_sendlist_knob%.png$')
+  assert(#cap>=3 and #disc==#cap,'every send slot wears a knob');local whole,faint=0,0
+  for _,c in ipairs(cap) do
+    if c.a==1 then whole=whole+1;assert(math.abs(c.b[3]-(2*pos-1)*math.pi*5/6)<1e-9,'the send\'s cap is turned by its level')
+    else faint=faint+1;assert(math.abs(c.a-.125)<1e-9 and math.abs(c.b[3]+math.pi*5/6)<1e-9,'an empty slot is faint, at the minimum') end
+  end
+  eq(whole,1);eq(faint,#cap-1);eq(v.bitmaps.alpha,nil)
+  v=run('Default_4.0.ReaperThemeZip',73,818,true);eq(v.snapshot.sends[1].kind,'midi');eq(#blits('mcp_sendlist_knob%.png$'),#cap-1)
+  -- Default 3.0 ships no knob art, and nothing is drawn for it.
+  v=run('Default_3.0.ReaperThemeZip',72,806,false);eq(#blits('mcp_sendlist_knob%.png$'),0)
+  -- Horizon: a frame of its knob stack picked by the level, faint on empty slots.
+  v=run('Horizon_Theme.ReaperThemeZip',62,527,false);eq(#v.bitmaps.missing,0)
+  local st=blits('mcp_send_knob_stack%.png$');assert(#st>=3)
+  local art=v.bitmaps:get('mcp_send_knob_stack',true);local frames=art.h//art.w;local frame=math.floor(pos*(frames-1)+.5);local whole=0
+  for _,s in ipairs(st) do
+    if s.a==1 then whole=whole+1;eq(s.b[5],art.y+frame*art.w) else assert(math.abs(s.a-.125)<1e-9);eq(s.b[5],art.y) end
+  end
+  eq(whole,1);eq(v.bitmaps.alpha,nil)
+  -- WT Imperial V5: disc and cap on every send row; its older siblings, whose art was not measured, none.
+  v=run('WT_Imperial_V5_WIPsnapshot_build.ReaperThemeZip',94,1092,false);eq(#v.bitmaps.missing,0)
+  assert(v.send_box.rows>=3);eq(#blits('mcp_sendlist_knob_bg%.png$'),v.send_box.rows);eq(#blits('mcp_sendlist_knob%.png$'),v.send_box.rows)
+  for _,f in ipairs({'WT_Imperial.ReaperThemeZip','Imperial_LCS-mod-dark_v3.ReaperThemeZip'}) do v=run(f,94,1092,false);eq(#blits('mcp_sendlist_knob%.png$'),0) end
+end)
+
+test('cosmetic fixes: Horizon/paRt meter glyph, Imperial LCS master logo, ReaTools master accent bands', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  h.GetOS=function() return 'macOS-arm64' end
+  local Theme=dofile('inspector/theme.lua')
+  local home=os.getenv('HOME')..'/Library/Application Support/REAPER/ColorThemes/'
+  local env={cache=h.cache..'/cosmetic3',mkdir=function(p) os.execute('mkdir -p "'..p..'"') end}
+  local function has_blit(pat) for _,b in ipairs(g.blits) do if (g.images[b[1]] or ''):find(pat) then return true end end return false end
+  -- Horizon and paRt: meter_mute when muted, meter_unsolo when another track is soloed and this one is not, neither when active.
+  for _,spec in ipairs({{'Horizon_Theme.ReaperThemeZip',62,527},{'paRt - Dark.ReaperThemeZip',49,791}}) do
+    local t=assert(Theme.resolve(home..spec[1],env))
+    local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),t,{output_strip=false})
+    g.ext_retina=2;g.w=spec[2]*2;g.h=spec[3]*2
+    h.a.values.B_MUTE=0;h.a.values.I_SOLO=0;h.AnyTrackSolo=function() return false end
+    g.blits={};v:frame();assert(not has_blit('meter_mute%.png$') and not has_blit('meter_unsolo%.png$'))
+    h.a.values.B_MUTE=1;g.blits={};v:frame();assert(has_blit('meter_mute%.png$'))
+    h.a.values.B_MUTE=0;h.AnyTrackSolo=function() return true end;g.blits={};v:frame();assert(has_blit('meter_unsolo%.png$'))
+    h.a.values.I_SOLO=1;g.blits={};v:frame();assert(not has_blit('meter_unsolo%.png$'))
+  end
+  h.a.values.B_MUTE=0;h.a.values.I_SOLO=0;h.AnyTrackSolo=function() return false end
+  -- Imperial LCS-mod master: logo restored when fader is shortened, and inert mixer_menu skipped when it would overlap the logo.
+  local tlcs=assert(Theme.resolve(home..'Imperial_LCS-mod-dark_v3.ReaperThemeZip',env))
+  local vlcs=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),tlcs,{output_strip=true})
+  for _,hgt in ipairs({340,409,454,600,700,900}) do
+    g.ext_retina=2;g.w=200*2;g.h=hgt*2;g.blits={};vlcs:frame()
+    eq(#vlcs.bitmaps.missing,0)
+  end
+  -- ReaTools master: top (12 pt) and bottom (13 pt) accent bands load ci/mcp_masterlabelcolor and draw even when track colour bars are hidden.
+  local trt=assert(Theme.resolve(home..'ReaTools Dark V2.49.2.ReaperThemeZip',env))
+  local vrt=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),trt,{output_strip=true})
+  g.ext_retina=2;g.w=180*2;g.h=785*2;g.calls={};vrt:frame()
+  assert(vrt.bitmaps:get('ci/mcp_masterlabelcolor',true)~=nil,'master accent colour art loaded')
+  local top_band,bot_band=false,false
+  for _,c in ipairs(g.calls) do
+    if c[1]=='rect' and c[2]>=180 and c[4]==156 and c[3]==6 and c[5]==24 then top_band=true end
+    if c[1]=='rect' and c[2]>=180 and c[4]==156 and c[3]==(785-17)*2 and c[5]==26 then bot_band=true end
+  end
+  assert(top_band and bot_band,'master top and bottom accent bands drawn')
+end)
+
+-- ---------------------------------------------------------------------------------------------------------------------
+-- Freeze button (Kanban t_4c87e0fd)
+-- A fake resource folder whose reaper-kb.ini names FeedTheCat's two Smart-freeze scripts (plus decoys); the lookup maps their ids.
+local function ftc_host(h,opts)
+  opts=opts or {}
+  local dir=h.cache..'/freeze-reaper'
+  assert(os.execute('mkdir -p "'..dir..'"'))
+  local f=assert(io.open(dir..'/reaper-kb.ini','wb'))
+  f:write('[Actions]\r\nKEY 1 65 _SWS_ABOUT 0\r\n')
+  f:write('SCR 4 0 RS1111111111111111111111111111111111111111 "Custom: Not Smart-freeze selected tracks.lua" "Other/Not Smart-freeze selected tracks.lua"\r\n')
+  f:write('SCR 4 0 RS2222222222222222222222222222222222222222 "Custom: Smart-freeze selected tracks.lua.bak" "FTC Tools/Freeze/Smart-freeze selected tracks.lua.bak"\r\n')
+  if not opts.none then
+    f:write('SCR 4 0 RS0123456789abcdef0123456789abcdef01234567 "Custom: Smart-freeze selected tracks.lua" "FTC Tools\\Freeze\\SMART-FREEZE SELECTED TRACKS.LUA"\r\n')
+    f:write('SCR 4 0 RSfeedbeeffeedbeeffeedbeeffeedbeeffeedbee "Custom: Smart-freeze settings.lua" "FTC Tools/Freeze/Smart-freeze settings.lua"\r\n')
+  end
+  f:close()
+  h.GetResourcePath=function() return dir end
+  h.lookups={}
+  local map={['_RS0123456789abcdef0123456789abcdef01234567']=55001,['_RSfeedbeeffeedbeeffeedbeeffeedbeeffeedbee']=55002}
+  if opts.unresolved then map={} end
+  h.NamedCommandLookup=function(name) h.lookups[#h.lookups+1]=name;return map[name] or 0 end
+  return dir
+end
+
+test('Freeze model: reads I_FREEZECOUNT, finds FTC Smart-freeze dynamically, and refuses stale/output/master targets', function()
+  local h=dofile('tests/synthetic.lua').host();local Model=dofile('inspector/model.lua');local m=Model.new(h)
+  eq(m:snapshot().freeze,0);h.a.values.I_FREEZECOUNT=3;eq(m:snapshot().freeze,3);h.a.values.I_FREEZECOUNT=0
+  -- No lookup function / no reaper-kb.ini: no Smart-freeze, and nothing is ever written
+  eq(m:ftc_command('tracks'),nil)
+  ftc_host(h,{none=true});eq(m:ftc_command('tracks'),nil);eq(m:ftc_command('settings'),nil);eq(#h.lookups,0)
+  ftc_host(h,{unresolved=true});eq(m:ftc_command('tracks'),nil);eq(h.lookups[1],'_RS0123456789abcdef0123456789abcdef01234567') -- id found, REAPER does not know it: nil
+  ftc_host(h);eq(m:ftc_command('tracks'),55001);eq(m:ftc_command('settings'),55002) -- case-insensitive, backslash paths, decoys ignored
+  eq(h.lookups[#h.lookups],'_RSfeedbeeffeedbeeffeedbeeffeedbeeffeedbee')
+  local s=m:snapshot();local sel=h.selected
+  for mode,cmd in pairs({unfreeze=41644,stereo=41223,mono=40901,multi=40877}) do
+    h.commands={};local ok,note=m:freeze_track(s,mode);assert(ok);eq(note,nil);eq(#h.commands,1);eq(h.commands[1],cmd)
+  end
+  h.commands={};local ok,note=m:freeze_track(s,'smart');assert(ok);eq(note,nil);eq(h.commands[1],55001)
+  h.commands={};assert(m:smart_freeze_settings());eq(h.commands[1],55002)
+  assert(not m:freeze_track(s,'bogus'))
+  -- Smart-freeze missing: the stereo freeze runs instead and the caller is told
+  ftc_host(h,{none=true});h.commands={};ok,note=m:freeze_track(s,'smart');assert(ok);eq(note,'fallback');eq(h.commands[1],41223)
+  h.commands={};assert(not m:smart_freeze_settings());eq(#h.commands,0)
+  -- Guards: a stale token, the master and an output (owner) snapshot are all refused
+  h.commands={};h.selected=h.b;assert(not m:freeze_track(s,'stereo'));assert(not m:freeze_track(s,'unfreeze'));eq(#h.commands,0)
+  h.selected=h.a;local fresh=m:snapshot();local mt=m:output_snapshot(fresh,h.master)
+  assert(mt.master and mt.owner);assert(not m:freeze_track(mt,'stereo'));eq(#h.commands,0)
+  local plain=m:read(fresh.project,h.master,'{MASTER}');assert(plain.master);assert(not m:freeze_track(plain,'stereo'));eq(#h.commands,0)
+  h.a.parent=h.b;local ob=m:output_snapshot(fresh,h.b);assert(ob.owner and not ob.master);assert(not m:freeze_track(ob,'stereo'));eq(#h.commands,0)
+  h.a.parent=nil;assert(not m:freeze_track(nil,'stereo'))
+  eq(h.selected,h.a);eq(#h.writes,0);eq(#h.undos,0);eq(sel,h.a)
+end)
+
+test('Freeze button: inspected strip only, never overlapping or losing rack rows, on every height and width', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  h.GetOS=function() return 'macOS-arm64' end
+  local Theme=dofile('inspector/theme.lua')
+  local home=os.getenv('HOME')..'/Library/Application Support/REAPER/ColorThemes/'
+  local env={cache=h.cache..'/freezeb',mkdir=function(p) os.execute('mkdir -p "'..p..'"') end}
+  local specs={{'Default_7.0.ReaperThemeZip',3},{'Default_6.0.ReaperThemeZip',3},{REAPERTIPS,3},{'Default_3.0.ReaperThemeZip',4},{'Default_4.0.ReaperThemeZip',4},
+    {'paRt - Dark.ReaperThemeZip',3},{'ReaTools Dark V2.49.2.ReaperThemeZip',3},{'Flat Madness CI 5.1.0 Dark.ReaperThemeZip',0},{'Horizon_Theme.ReaperThemeZip',3},
+    {'Imperial_LCS-mod-dark_v3.ReaperThemeZip',3},{'nvk_THEME_Dark.ReaperThemeZip',3}}
+  local checked=0
+  for _,sp in ipairs(specs) do
+    local path=sp[1]:find('/',1,true) and sp[1] or home..sp[1]
+    local theme=Theme.resolve(path,env)
+    if theme then
+      local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),theme,{output_strip=false})
+      for _,mode in ipairs({3,5,6}) do
+        local prev_rows=0
+        for _,hgt in ipairs({340,380,409,454,520,600,700,900}) do
+          for _,w in ipairs({86,96,120,188}) do
+            h.a.values.I_PANMODE=mode;g.ext_retina=2;g.w=w*2;g.h=hgt*2;v:frame();local k=v.hits
+            local fz,out=k.freeze,k.output
+            local rows=v.fx_box.rows+v.send_box.rows+(out and 1 or 0)
+            if w==86 and mode==3 then assert(rows>=prev_rows,theme.layout..' rack rows only grow with the strip ('..hgt..')');prev_rows=rows end
+            if out and sp[2]>0 then
+              assert(fz,theme.layout..' Freeze visible at '..w..'x'..hgt..' mode '..mode)
+              assert(fz.action and fz.menu,'Freeze is clickable');assert(fz.w>=10 and fz.h>=7,theme.layout..' Freeze is a usable size at '..w..'x'..hgt)
+              assert(fz.x>=0 and fz.x+fz.w<=w+.01 and fz.y>=0 and fz.y+fz.h<=hgt+.01,theme.layout..' Freeze inside the strip at '..w..'x'..hgt)
+              local function hit(a,b) return not (a.x+a.w<=b.x+.01 or b.x+b.w<=a.x+.01 or a.y+a.h<=b.y+.01 or b.y+b.h<=a.y+.01) end
+              for _,o in ipairs(v.order) do
+                -- (Default 3.0's own output row already touches its mute button by 1.5 pt at 700 pt; Freeze adds no overlap of its own)
+                if o~=fz and not (o.id~='output' and hit(out,o)) then assert(fz.x+fz.w<=o.x+.01 or o.x+o.w<=fz.x+.01 or fz.y+fz.h<=o.y+.01 or o.y+o.h<=fz.y+.01,
+                  theme.layout..' Freeze overlaps '..o.id..' at '..w..'x'..hgt..' mode '..mode) end
+              end
+              assert(fz.y+fz.h<=v.layout.T+.01 or fz.y+fz.h<=hgt,'Freeze stays above the lower controls')
+              checked=checked+1
+            end
+          end
+        end
+      end
+      -- Racks never fall below their minimum because of Freeze: compare with the output strip of a parent folder, which is the same
+      -- plan without the button (so wherever that keeps the minimum, the inspected strip keeps it too, and never has fewer than one row less).
+      v.options.output_strip=true;h.a.parent=h.b;h.a.values.I_PANMODE=3
+      for _,hgt in ipairs({340,380,409,454,520,600,700,900,1100}) do
+        g.ext_retina=2;g.w=2*2*100;g.h=hgt*2;v:frame()
+        if v.out_snapshot and v.hits.freeze then
+          local mine=v.fx_box.rows+v.send_box.rows+1;local plain=v.out.fx_box.rows+v.out.send_box.rows+1
+          assert(mine>=plain-1,theme.layout..' Freeze costs at most one rack row at '..hgt)
+          if plain>=sp[2]+2 then assert(mine>=sp[2],theme.layout..' racks keep their minimum at '..hgt) end
+        end
+      end
+      h.a.parent=nil;v.options.output_strip=false
+      -- The output strip (master, or a parent folder) never has one, and neither does a master that is inspected.
+      v.options.output_strip=true;h.a.values.I_PANMODE=3;g.w=2*2*200;g.h=900*2;v:frame()
+      eq(v.hits['out:freeze'],nil);assert(v.hits.freeze or theme.layout=='flatmadness')
+      h.a.parent=h.b;v:frame();assert(v.out_snapshot and v.out_snapshot.owner);eq(v.hits['out:freeze'],nil);h.a.parent=nil
+      v.options.output_strip=false
+    end
+  end
+  assert(checked>=900,'enough Freeze geometry checked: '..checked)
+  -- A master track selected in REAPER has no Freeze button either.
+  local theme=assert(Theme.resolve(home..'Default_7.0.ReaperThemeZip',env))
+  local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),theme,{output_strip=false})
+  h.selected=h.master;h.master.color=nil;g.ext_retina=2;g.w=240;g.h=1800;v:frame();assert(v.snapshot.master);eq(v.hits.freeze,nil);h.selected=h.a
+  eq(#h.writes,0)
+end)
+
+test('Freeze button: styling, left click (stereo / Smart-freeze / fallback / unfreeze), right-click menu and remembered option', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  h.GetOS=function() return 'macOS-arm64' end
+  local Theme=dofile('inspector/theme.lua')
+  local home=os.getenv('HOME')..'/Library/Application Support/REAPER/ColorThemes/'
+  local env={cache=h.cache..'/freezec',mkdir=function(p) os.execute('mkdir -p "'..p..'"') end}
+  local theme=assert(Theme.resolve(home..'Default_7.0.ReaperThemeZip',env))
+  local v=dofile('inspector/view.lua').new(h,g,dofile('inspector/model.lua').new(h),theme,{output_strip=false})
+  local function at(w,hgt) g.ext_retina=2;g.w=w*2;g.h=hgt*2;g.calls={};g.mouse_x,g.mouse_y,g.mouse_cap=0,0,0;v:frame() end
+  local function press(id,cap) local hit=assert(v.hits[id],id);g.mouse_x=(hit.x+hit.w/2)*v.scale;g.mouse_y=(hit.y+hit.h/2)*v.scale;g.mouse_cap=cap;v:frame();g.mouse_cap=0;v:frame() end
+  local function drawn(text) for _,c in ipairs(g.calls) do if c[1]=='drawstr' and c[2]==text then return true end end return false end
+  local function icy() for _,c in ipairs(g.calls) do if c[1]=='set' and math.abs(c[2]*255-62)<.6 and math.abs(c[3]*255-138)<.6 and math.abs(c[4]*255-196)<.6 then return true end end return false end
+  local function pick(label) local n=0
+    for part in (g.menus[#g.menus]..'|'):gmatch('([^|]*)|') do if part~='' and part:sub(1,1)~='>' then n=n+1;if part:gsub('^[<!#]+','')==label then return n end end end
+    error('no menu entry '..label) end
+  local function has(label) for part in (g.menus[#g.menus]..'|'):gmatch('([^|]*)|') do if part:gsub('^[<!#]+','')==label then return part end end end
+  -- Unfrozen: a dark pill labelled Freeze; frozen: icy blue "Frozen" (x2 when it holds two freezes and the width fits)
+  at(188,800);assert(drawn('Freeze'));assert(not icy());assert(not drawn('Frozen'))
+  h.a.values.I_FREEZECOUNT=1;at(188,800);assert(drawn('Frozen'));assert(icy())
+  h.a.values.I_FREEZECOUNT=2;at(188,800);assert(drawn('Frozen x2') or drawn('Frozen'));assert(icy())
+  h.a.values.I_FREEZECOUNT=1;at(86,340);assert(icy());assert(drawn('Frozen') or drawn('Frz'))
+  h.a.values.I_FREEZECOUNT=0;at(86,340);assert(drawn('Freeze') or drawn('Frz'));assert(not icy())
+  -- Left click: stereo freeze by default, never touching selection, undo or the project directly
+  at(120,800);h.commands={};press('freeze',1);eq(h.commands[1],41223);eq(#h.commands,1);eq(h.selected,h.a);eq(#h.writes,0);eq(#h.undos,0)
+  -- Frozen: a left click unfreezes
+  h.a.values.I_FREEZECOUNT=1;at(120,800);h.commands={};press('freeze',1);eq(h.commands[1],41644);eq(#h.commands,1)
+  -- Smart-freeze preferred and installed: its action; not installed: a stereo freeze and a brief note
+  h.a.values.I_FREEZECOUNT=0;v.options.smart_freeze=true;ftc_host(h);at(120,800);h.commands={};press('freeze',1);eq(h.commands[1],55001)
+  h.a.values.I_FREEZECOUNT=1;at(120,800);h.commands={};press('freeze',1);eq(h.commands[1],41644) -- frozen still unfreezes
+  h.a.values.I_FREEZECOUNT=0;ftc_host(h,{none=true});v.root.notice=nil;at(120,800);h.commands={};press('freeze',1)
+  eq(h.commands[1],41223);assert(v.root.notice and v.root.notice.text:find('Smart%-freeze'),'a note tells the user it fell back')
+  v.options.smart_freeze=false
+  -- Right click: menu lists every choice, Smart-freeze greyed without FTC, Unfreeze greyed until frozen, checkbox for the remembered option
+  at(120,800);g.menu=0;press('freeze',2);local m=g.menus[#g.menus]
+  for _,l in ipairs({'Freeze track to stereo','Freeze track to mono','Freeze track to multichannel','Smart-freeze track (FTC)','Unfreeze track','Use FTC Smart-freeze by default'}) do assert(has(l),l) end
+  assert(g.menus[#g.menus]:find('#Smart-freeze track (FTC)',1,true),'greyed without FTC')
+  assert(g.menus[#g.menus]:find('#Unfreeze track',1,true),'greyed while not frozen');assert(not g.menus[#g.menus]:find('Smart-freeze settings...',1,true))
+  assert(not g.menus[#g.menus]:find('!Use FTC Smart-freeze by default',1,true))
+  g.menu=pick('Freeze track to mono');press('freeze',2);eq(h.commands[#h.commands],40901)
+  g.menu=pick('Freeze track to multichannel');press('freeze',2);eq(h.commands[#h.commands],40877)
+  g.menu=pick('Freeze track to stereo');press('freeze',2);eq(h.commands[#h.commands],41223)
+  ftc_host(h);h.a.values.I_FREEZECOUNT=1;at(120,800);g.menu=0;press('freeze',2)
+  assert(not g.menus[#g.menus]:find('#Smart-freeze track (FTC)',1,true) and has('Smart-freeze track (FTC)'));assert(has('Smart-freeze settings...'))
+  assert(not g.menus[#g.menus]:find('#Unfreeze track',1,true) and has('Unfreeze track'))
+  g.menu=pick('Smart-freeze track (FTC)');press('freeze',2);eq(h.commands[#h.commands],55001)
+  g.menu=pick('Smart-freeze settings...');press('freeze',2);eq(h.commands[#h.commands],55002)
+  g.menu=pick('Unfreeze track');press('freeze',2);eq(h.commands[#h.commands],41644)
+  -- Without the app's callback the option still toggles on the view; with it, it persists (below)
+  g.menu=pick('Use FTC Smart-freeze by default');press('freeze',2);eq(v.options.smart_freeze,true)
+  g.menu=0;press('freeze',2);assert(g.menus[#g.menus]:find('!Use FTC Smart-freeze by default',1,true))
+  -- Stale target: the selection moved but the frame did not run yet: nothing is sent
+  h.a.values.I_FREEZECOUNT=0;at(120,800);local hit=v.hits.freeze;h.selected=h.b;h.commands={};hit.action(1);eq(#h.commands,0)
+  g.menu=pick('Use FTC Smart-freeze by default');hit.menu();eq(#h.commands,0)
+  h.selected=h.a;eq(#h.writes,0)
+end)
+
+test('Freeze: Smart-freeze choice is remembered in ExtState, shown in the Inspector menu, and restored on startup', function()
+  local fake=dofile('tests/synthetic.lua');local h,g=fake.host(),fake.gfx()
+  h.GetOS=function() return 'macOS-arm64' end
+  local App=dofile('inspector/app.lua');ftc_host(h);h.theme_file=REAPERTIPS
+  local app=App.new(h,g);assert(app:start())
+  eq(app.view.options.smart_freeze,false);eq(h.ext['ReaperInspector/smart_freeze'],nil)
+  g.menu=0;app:menu();assert(g.menus[#g.menus]:find('|Use FTC Smart-freeze|Close inspector',1,true),'unchecked entry in the Inspector menu')
+  g.menu=6;app:menu();eq(app.view.options.smart_freeze,true);eq(h.ext['ReaperInspector/smart_freeze'],'1')
+  g.menu=0;app:menu();assert(g.menus[#g.menus]:find('|!Use FTC Smart-freeze|Close inspector',1,true),'checked entry')
+  g.menu=7;app:menu();assert(app.closed,'Close inspector moved to entry 7')
+  -- restart: loaded from ExtState; the button's own menu toggles it back through the app's callback
+  local again=App.new(h,g);assert(again:start());eq(again.view.options.smart_freeze,true)
+  again.view.options.set_smart_freeze(false);eq(again.view.options.smart_freeze,false);eq(h.ext['ReaperInspector/smart_freeze'],'0')
+  again:stop();local third=App.new(h,g);assert(third:start());eq(third.view.options.smart_freeze,false)
+  -- through the real hit: right-click the button, tick the checkbox
+  third:frame();g.ext_retina=2;g.w=2*240;g.h=2*900;third:frame()
+  local hit=assert(third.view.hits.freeze);g.mouse_x=(hit.x+hit.w/2)*third.view.scale;g.mouse_y=(hit.y+hit.h/2)*third.view.scale
+  g.menu=0;g.mouse_cap=2;third:frame();g.mouse_cap=0;third:frame()
+  local n=0;for part in (g.menus[#g.menus]..'|'):gmatch('([^|]*)|') do if part~='' and part:sub(1,1)~='>' then n=n+1 end end
+  g.menu=n;g.mouse_cap=2;third:frame();g.mouse_cap=0;third:frame()
+  eq(third.view.options.smart_freeze,true);eq(h.ext['ReaperInspector/smart_freeze'],'1')
+  third:stop();eq(#h.writes,0);eq(h.selected,h.a)
 end)
 
 for _, t in ipairs(tests) do

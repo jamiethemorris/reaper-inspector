@@ -102,7 +102,7 @@ function M:blit(a,sx,sy,sw,sh,dx,dy,dw,dh,smooth)
     local x0,x1=math.max(dx,clip[1]),math.min(dx+dw,clip[2]);if x1<=x0 then return end
     if x0~=dx or x1~=dx+dw then local k=sw/dw;sx=sx+math.floor((x0-dx)*k+.5);sw=math.max(1,math.floor((x1-x0)*k+.5));dx,dw=x0,x1-x0 end
   end
-  local g=self.g;g.a=1;g.mode=smooth and 0 or 4
+  local g=self.g;g.a=self.alpha or 1;g.mode=smooth and 0 or 4 -- (`alpha`: a layout dimming what it draws next, e.g. the knob of an empty send slot)
   g.blit(a.slot,1,0,sx,sy,sw,sh,dx,dy,dw,dh)
 end
 -- Knob stacks are vertical strips of square frames, ordered from minimum to maximum.
@@ -115,6 +115,17 @@ function M:knob_frame(name,position,cx,cy,scale,fit)
   if size<=0 then return false end
   local x,y=math.floor(cx*scale-size/2+.5),math.floor(cy*scale-size/2+.5)
   self:blit(a,a.x,a.y+frame*a.w,a.w,a.w,x,y,size,size,fit~=nil and size~=a.w)
+  return true
+end
+-- A knob's cap: one image with its marker at the top, fitted to a `size` pt square at x,y and turned clockwise by `angle` radians about its centre
+-- (what gfx.blit's rotation does). Default 4.0's send knobs are a disc and this cap.
+function M:rotated(name,angle,x,y,size,scale)
+  local a=self:get(name,true)
+  if not a or a.w<=0 or a.h<=0 then return false end
+  local S=math.floor(size*scale+.5)
+  if S<=0 then return false end
+  local g=self.g;g.a=self.alpha or 1;g.mode=0
+  g.blit(a.slot,1,angle,a.x,a.y,a.w,a.h,math.floor(x*scale+.5),math.floor(y*scale+.5),S,S)
   return true
 end
 -- A stack whose frames are as wide as the control and `h` points tall (theFRXST's bar-shaped pan and width).
@@ -140,6 +151,7 @@ function M:draw(name,state,x,y,w,h,scale,optional,crop,frames)
   local function ip(v) return math.floor(v*k+.5) end
   local ol,ot,orr,ob=a.over[1],a.over[2],a.over[3],a.over[4]
   local X,Y=px(x)-ip(ol),px(y)-ip(ot)
+  if self.shift then X,Y=X+self.shift[1],Y+self.shift[2] end -- (`shift`: whole device pixels, for drawing the same pixels somewhere else: see face)
   local Wd=(w and px(x+w)-px(x) or ip(sw-ol-orr))+ip(ol)+ip(orr)
   if crop then ob=0 end
   local Hd=(h and px(y+h)-px(y) or ip(sh-ot-ob))+ip(ot)+ip(ob)
@@ -161,6 +173,62 @@ function M:draw(name,state,x,y,w,h,scale,optional,crop,frames)
     self:blit(a,sx+c[1],sy+r[1],c[2],r[2],X+c[3],Y+r[3],c[4],r[4],smooth)
   end end
   return true
+end
+-- The face of a sprite drawn into x,y,w,h: the device pixels its art really covers. List cells keep transparent margins and rounded
+-- corners inside their rectangle, and gfx cannot read an image's alpha back, so the art is drawn at that very size over black and over
+-- white in two scratch images (slots far past any theme's art) and the difference read: 1 where it is opaque, 0 where it is clear.
+-- Returns {x,y,w,h, rows={{y0,y1,x0,x1},...}} in device pixels from the rectangle's own top left corner (its tallest unbroken run of
+-- covered rows, each with the columns it starts and ends at), or nil for art with no face of its own there. Kept per size.
+local BLACK,WHITE=1022,1023
+function M:face(name,state,x,y,w,h,scale)
+  local a=self:get(name,true);if not a then return nil end
+  local g=self.g
+  local function px(v) return math.floor(v*scale+.5) end
+  local k=scale/a.scale
+  local function ip(v) return math.floor(v*k+.5) end
+  local Wd,Hd=px(x+w)-px(x),px(y+h)-px(y)
+  if Wd<=0 or Hd<=0 then return nil end
+  local key=name..'|'..(state or 0)..'|'..Wd..'|'..Hd..'|'..scale
+  self.faces=self.faces or {}
+  local f=self.faces[key]
+  if f~=nil then return f or nil end
+  self.nfaces=(self.nfaces or 0)+1
+  if self.nfaces>96 then self.faces,self.nfaces={},1 end -- (a panel dragged through many widths: start over rather than grow)
+  local ol,ot=ip(a.over[1]),ip(a.over[2])
+  local bw,bh=Wd+ol+ip(a.over[3]),Hd+ot+ip(a.over[4])
+  local dest,gx,gy,mode,clip,alpha=g.dest,g.x,g.y,g.mode,self.clip,self.alpha
+  self.clip,self.alpha,self.shift=nil,nil,{ol-px(x),ot-px(y)} -- the art's own top left corner (overhang included) at the scratch image's
+  for i,slot in ipairs({BLACK,WHITE}) do
+    g.setimgdim(slot,bw,bh);g.dest=slot;g.mode=0;g.set(i-1,i-1,i-1,1);g.rect(0,0,bw,bh,1)
+    self:draw(name,state,x,y,w,h,scale,true)
+  end
+  local function at(X,Y)
+    g.x,g.y=X,Y;g.dest=BLACK;local r,gr,b=g.getpixel();g.dest=WHITE;local r2,g2,b2=g.getpixel()
+    return 1-((r2+g2+b2)-(r+gr+b))/3
+  end
+  -- Down the middle: how opaque the face is (stock 7's is half clear) and which rows it takes; then each row's ends, from outside in.
+  local cx=bw//2;local col,peak={},0
+  for Y=0,bh-1 do col[Y]=at(cx,Y);if col[Y]>peak then peak=col[Y] end end
+  f=false
+  if peak>=.1 then
+    local thr=peak*.5;local y0,y1,run=0,0,nil
+    for Y=0,bh do
+      local on=Y<bh and col[Y]>=thr
+      if on and not run then run=Y elseif not on and run then if Y-run>y1-y0 then y0,y1=run,Y end;run=nil end
+    end
+    local rows,x0,x1={},bw,0
+    for Y=y0,y1-1 do
+      local l,r=0,bw
+      while l<cx and at(l,Y)<thr do l=l+1 end
+      while r-1>cx and at(r-1,Y)<thr do r=r-1 end
+      local last=rows[#rows]
+      if last and last[3]==l-ol and last[4]==r-ol then last[2]=Y+1-ot else rows[#rows+1]={Y-ot,Y+1-ot,l-ol,r-ol} end
+      if l<x0 then x0=l end;if r>x1 then x1=r end
+    end
+    if y1>y0 and x1>x0 then f={x=x0-ol,y=y0-ot,w=x1-x0,h=y1-y0,rows=rows} end
+  end
+  g.dest,g.x,g.y,g.mode=dest,gx,gy,mode;g.a=1;self.clip,self.alpha,self.shift=clip,alpha,nil
+  self.faces[key]=f;return f or nil
 end
 -- Borrow a slice of the mixer background only when the entire panel lies inside
 -- its fixed top region. Never stretch a vertical guide, stretch the footer, or
@@ -253,6 +321,7 @@ function M:generic_button(name,state,x,y,w,h,scale)
 end
 function M:clear()
   for _,a in pairs(self.cache) do if a then self.g.setimgdim(a.slot,0,0) end end
-  self.cache={};self.count=0;self.missing={}
+  if self.faces then self.g.setimgdim(BLACK,0,0);self.g.setimgdim(WHITE,0,0) end
+  self.cache={};self.count=0;self.missing={};self.faces,self.nfaces=nil,nil
 end
 return M

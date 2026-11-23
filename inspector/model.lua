@@ -78,7 +78,9 @@ function M:read(p,t,guid)
     s.sends[#s.sends+1]={kind='send',index=i,name=n,dest=self:send_dest(t,i),
       volume=r.GetTrackSendInfo_Value(t,0,i,'D_VOL'),mute=r.GetTrackSendInfo_Value(t,0,i,'B_MUTE')~=0}
   end
+  s.freeze=math.floor(r.GetMediaTrackInfo_Value(t,'I_FREEZECOUNT') or 0) -- how many freezes the track holds (0: not frozen)
   s.receives=r.GetTrackNumSends(t,-1)
+  s.anysolo=r.AnyTrackSolo~=nil and r.AnyTrackSolo(p) and true or false -- some track is soloed: a track that is not is silenced by it (REAPER marks the meter)
   s.recfx=r.TrackFX_GetRecCount and r.TrackFX_GetRecCount(t) or 0
   s.peaks={r.Track_GetPeakInfo(t,0),r.Track_GetPeakInfo(t,1)}
   if s.master then -- the master meter's loudness readout and the master mono switch
@@ -150,6 +152,48 @@ function M:master_mono(token)
   local r=self.r
   if not self:valid(token) or not token.master or not r.Main_OnCommandEx then return false end
   r.Main_OnCommandEx(40917,0,token.project);return true
+end
+-- Same guard as every other write, under the name the freeze code reads best with.
+function M:verify(token) return self:valid(token) end
+-- FeedTheCat's Smart-freeze scripts are found through REAPER's own action list (reaper-kb.ini is only read, never
+-- written): a SCR line names the script's path, and "_" + its RS id resolves to the session's command id.
+local FTC={tracks='smart-freeze selected tracks.lua',settings='smart-freeze settings.lua'}
+function M:ftc_command(which)
+  local r=self.r;local tail=FTC[which]
+  if not tail or not r.GetResourcePath or not r.NamedCommandLookup then return nil end
+  local f=io.open(r.GetResourcePath()..'/reaper-kb.ini','rb');if not f then return nil end
+  local id
+  for line in f:lines() do
+    local rs,path=line:match('^SCR%s+%d+%s+%d+%s+(RS%x+)%s+"[^"]*"%s+"([^"]*)"')
+    if not rs then rs,path=line:match('^SCR%s+%d+%s+%d+%s+(RS%x+)%s+"[^"]*"%s+(%S+)') end
+    if rs and path then
+      path=path:lower():gsub('\\','/')
+      if path:sub(-#tail)==tail and (#path==#tail or path:sub(-#tail-1,-#tail-1)=='/') then id=rs;break end
+    end
+  end
+  f:close()
+  if not id then return nil end
+  local cmd=r.NamedCommandLookup('_'..id)
+  return cmd and cmd~=0 and cmd or nil
+end
+-- REAPER's freeze actions work on the selected tracks (the inspected track is the first one); selection is never changed.
+local FREEZE={unfreeze=41644,stereo=41223,mono=40901,multi=40877}
+function M:freeze_track(token,mode)
+  local r=self.r
+  if not token or token.master or token.owner or not r.Main_OnCommandEx or not self:verify(token) then return false end
+  local cmd,note=FREEZE[mode],nil
+  if mode=='smart' then
+    cmd=self:ftc_command('tracks')
+    if not cmd then cmd,note=FREEZE.stereo,'fallback' end
+  end
+  if not cmd then return false end
+  r.Main_OnCommandEx(cmd,0,token.project)
+  return true,note
+end
+function M:smart_freeze_settings()
+  local r=self.r;local cmd=r.Main_OnCommandEx and self:ftc_command('settings')
+  if not cmd then return false end
+  r.Main_OnCommandEx(cmd,0,0);return true
 end
 -- FX slots are addressed by index, so the GUID is rechecked before every use.
 function M:fx_ok(token,fx)

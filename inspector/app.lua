@@ -93,7 +93,8 @@ function M:menu()
   local d=self.g.dock(-1)
   local out=self.view.options.output_strip~=false
   local full=self.view.options.full_theme_artwork
-  local choice=self.g.showmenu(((d&1)~=0 and '!' or '')..'Dock inspector|'..(out and '!' or '')..'Show output strip||Load theme...|'..(self.following and '!' or '').."Follow REAPER's theme|"..(full and '!' or '')..'Try full theme artwork (experimental)|Close inspector')
+  local smart=self.view.options.smart_freeze==true
+  local choice=self.g.showmenu(((d&1)~=0 and '!' or '')..'Dock inspector|'..(out and '!' or '')..'Show output strip||Load theme...|'..(self.following and '!' or '').."Follow REAPER's theme|"..(full and '!' or '')..'Try full theme artwork (experimental)|'..(smart and '!' or '')..'Use FTC Smart-freeze|Close inspector')
   if choice==1 then
     local nextdock=(d&1)~=0 and (d&(~1)) or (d|1)
     self.g.dock(nextdock);self:put('dock',nextdock,true);self.view.drag=nil
@@ -105,10 +106,14 @@ function M:menu()
     -- Swap between the borrowed look and the theme's own artwork; a recognised theme is left alone.
     local t=self.theme and (self.theme.borrowed or self.theme.layout=='generic' and not self.theme.full_art) and Theme.resolve(self.theme_path,self:env())
     if t then self:apply(t,self.theme_path);self:live_params() end
-  elseif choice==6 then self:stop() end
+  elseif choice==6 then self:set_smart_freeze(not smart)
+  elseif choice==7 then self:stop() end
 end
 function M:set_output(on)
   self.view.options.output_strip=on;self:put('output_strip',on and '1' or '0',true)
+end
+function M:set_smart_freeze(on)
+  on=on==true;self.view.options.smart_freeze=on;self:put('smart_freeze',on and '1' or '0',true)
 end
 function M:start()
   -- Direct/CLI duplicates ask the exact incumbent to stop; never steal its registry.
@@ -131,7 +136,8 @@ function M:start()
   self.g.init('Reaper Inspector',w,h,d)
   self.view=View.new(self.r,self.g,Model.new(self.r),self.theme,{
     load_theme=function() self:choose_theme() end,menu=function() self:menu() end,status=err or '',
-    output_strip=self:get('output_strip')~='0',set_output=function(on) self:set_output(on) end})
+    output_strip=self:get('output_strip')~='0',set_output=function(on) self:set_output(on) end,
+    smart_freeze=self:get('smart_freeze')=='1',set_smart_freeze=function(on) self:set_smart_freeze(on) end})
   self:put('error',err or '');self:receipt('running');return true
 end
 function M:frame()

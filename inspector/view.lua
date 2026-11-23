@@ -53,6 +53,165 @@ function M:output_menu(s)
     {'Show output strip',function() if root.options.set_output then root.options.set_output(not root:output_enabled()) end end,checked=root:output_enabled()},
     {'Show track routing window',function() self:show_routing(s) end}})
 end
+-- The Freeze control of the inspected track's strip. A left click toggles (freeze, or unfreeze when already frozen); a right
+-- click opens the choices. REAPER's freeze actions work on the selected tracks, and the model refuses a stale target.
+function M:freeze_click(s)
+  local m=self.model
+  if (s.freeze or 0)>0 then m:freeze_track(s,'unfreeze');return end
+  local ok,note=m:freeze_track(s,self.root.options.smart_freeze and 'smart' or 'stereo')
+  if ok and note=='fallback' then self:note('FTC Smart-freeze is not installed: froze to stereo') end
+end
+function M:freeze_menu(s)
+  local m=self.model;local root=self.root
+  local frozen=(s.freeze or 0)>0;local ftc=m:ftc_command('tracks')~=nil
+  local function go(mode) return function() m:freeze_track(s,mode) end end
+  local items={{'Freeze track to stereo',go('stereo')},{'Freeze track to mono',go('mono')},{'Freeze track to multichannel',go('multi')},{''},
+    {'Smart-freeze track (FTC)',ftc and go('smart') or nil}}
+  if m:ftc_command('settings') then items[#items+1]={'Smart-freeze settings...',function() m:smart_freeze_settings() end} end
+  items[#items+1]={''};items[#items+1]={'Unfreeze track',frozen and go('unfreeze') or nil};items[#items+1]={''}
+  local on=root.options.smart_freeze==true
+  items[#items+1]={'Use FTC Smart-freeze by default',function()
+    if root.options.set_smart_freeze then root.options.set_smart_freeze(not on) else root.options.smart_freeze=not on end
+  end,checked=on}
+  self:menu(items)
+end
+-- A small 6-pointed snowflake icon drawn in vector lines so it stays sharp at every display scale. X2,Y2 are twice its centre in device
+-- pixels (so a centre on a pixel's edge is as exact as one on its middle). Every stroke runs between whole pixels and is drawn with its
+-- mirror image through that centre, so the icon's bounds sit exactly on it. X2 is made odd: a 1 px upright stroke has no other centre.
+function M:snowflake(X2,Y2,r,c)
+  local g,R=self.g,r*self.scale
+  X2=X2|1
+  local function at(dx,dy) return math.floor((X2-1)/2+dx+.5),math.floor((Y2-1)/2+dy+.5) end
+  g.set(c[1]/255,c[2]/255,c[3]/255,(c[4] or 255)/255)
+  for i=0,2 do
+    local a=i*math.pi/3+math.pi/6
+    local dx,dy=math.cos(a)*R,math.sin(a)*R
+    local x,y=at(dx,dy)
+    g.line(x,y,X2-1-x,Y2-1-y,1)
+    if r>=3.2 then
+      for _,da in ipairs({-.55,.55}) do
+        local bx,by=at(dx*.6,dy*.6)
+        local ex,ey=at(dx*.6+math.cos(a+da)*R*.38,dy*.6+math.sin(a+da)*R*.38)
+        g.line(bx,by,ex,ey,1);g.line(X2-1-bx,Y2-1-by,X2-1-ex,Y2-1-ey,1)
+      end
+    end
+  end
+  g.a=1
+end
+-- Where a capital letter's ink sits in a line of the list font: its first row and the row after its last, in device pixels from where
+-- the text is drawn. gfx only tells a line's height, and where the letters sit in it differs from font to font and from host to host,
+-- so a letter is drawn into a scratch image and read back (once per font and scale). With nothing to read, the line itself.
+local INK=1021
+function M:cap_ink()
+  local root,g=self.root,self.g
+  local k=root.ink
+  if k and k.font==root.font and k.scale==root.scale and k.theme==root.font_theme then return k.top,k.bottom end
+  g.setfont(2)
+  local w,h=g.measurestr('F');w,h=math.ceil(w)+2,math.ceil(h)
+  local top,bottom
+  if w>2 and h>0 and h<=400 then
+    local dest,gx,gy,mode=g.dest,g.x,g.y,g.mode
+    g.setimgdim(INK,w,h);g.dest=INK;g.mode=0;g.set(0,0,0,1);g.rect(0,0,w,h,1)
+    g.set(1,1,1,1);g.x,g.y=1,0;g.drawstr('F')
+    for Y=0,h-1 do
+      for X=0,w-1 do
+        g.x,g.y=X,Y
+        if g.getpixel()>.4 then top=top or Y;bottom=Y+1;break end
+      end
+    end
+    g.setimgdim(INK,0,0);g.dest,g.x,g.y,g.mode=dest,gx,gy,mode;g.a=1
+  end
+  if not top then top,bottom=0,h end
+  root.ink={font=root.font,scale=root.scale,theme=root.font_theme,top=top,bottom=bottom}
+  return top,bottom
+end
+-- The Freeze button is one more cell of the theme's own list art. x,y,w,h is its cell and hit box; o.ax,o.aw,o.dy place the art in it
+-- exactly as the theme's list cells are placed (the output row it accompanies): so its face has that row's height and alignment beside
+-- it, and its margins under it, whatever transparent edges, overhang or rounded corners the art carries. The face is what the art
+-- really covers (Bitmaps:face): the frozen wash and the hover light fill those pixels only, and the snowflake and label are centred on it.
+--   o.bottom where the hit box must end (the lower controls)
+--   o.fit    in a row of its own: the face ends by o.bottom too. It first moves up into the gap its art leaves above it (keeping
+--            1 pt of it), and only then is the cell made shorter
+function M:freeze_button(s,x,y,w,h,o)
+  o=o or {}
+  local g,sc,bm=self.g,self.scale,self.bitmaps
+  local frozen=(s.freeze or 0)>0
+  local bottom=o.bottom or y+h
+  local hh=math.min(h,bottom-y)
+  local hover=inside({x=x,y=y,w=w,h=hh},self.mx,self.my)
+  local down=hover and (g.mouse_cap&1)~=0
+  local state=down and 2 or hover and 1 or 0
+  local colors=self.theme and self.theme.colors or {}
+  local art='mcp_fxlist_norm'
+  local ax,ay,aw,ah=o.ax or x,y+(o.dy or 0),o.aw or w,h
+  local function face() return bm and bm:face(art,0,ax+self.ox,ay,aw,ah,sc) or nil end
+  local f=face()
+  if o.fit then
+    local tm,bg=1,1 -- the art's clear rows above and below its face (1 pt each when it cannot be read)
+    if f then tm,bg=f.y/sc,ah-(f.y+f.h)/sc end
+    local over=ay+ah-bg-bottom
+    if over>0 then
+      local up=math.min(over,math.max(0,tm+bg-1))
+      ay=ay-up
+      if over>up then ah=math.max(8,ah-(over-up)) end
+      f=face()
+    end
+  end
+  -- Borrow the theme's own list-button art so the Freeze button matches its corners, bevel and finish;
+  -- fall back to a plain dark pill only when no bitmap is available.
+  local drawn=self:sprite(art,state,ax,ay,aw,ah)
+  -- The face in device pixels: the art's own, else (no art, or art that is clear there) a rectangle just inside the cell.
+  local F
+  if drawn and f then local X,Y=self:pxx(ax),self:px(ay);F={x=X+f.x,y=Y+f.y,w=f.w,h=f.h,rows=f.rows,ox=X,oy=Y,top=f.y}
+  else
+    local X,Y=self:pxx(x+1.5),self:px(ay+1)
+    F={x=X,y=Y,w=self:pxx(x+w-1.5)-X,h=self:px(ay+ah-1)-Y,ox=X,oy=Y,top=0};F.rows={{0,F.h,0,F.w}}
+  end
+  local one=math.max(1,math.floor(sc+.5))
+  local function fill(c,rows) -- the face's own pixels, or only its first `rows` rows
+    g.set(c[1]/255,c[2]/255,c[3]/255,(c[4] or 255)/255)
+    for _,r in ipairs(F.rows) do
+      local y0,y1=r[1],rows and math.min(r[2],F.top+rows) or r[2]
+      local x0=math.max(0,F.ox+r[3]) -- (a cell's art may start left of the strip)
+      if y1>y0 and F.ox+r[4]>x0 then g.rect(x0,F.oy+y0,F.ox+r[4]-x0,y1-y0,1) end
+    end
+    g.a=1
+  end
+  if not drawn then
+    fill(frozen and (down and {46,108,160} or hover and {82,158,214} or {62,138,196}) or (down and {30,30,30} or hover and {72,72,74} or {52,52,54}))
+    fill({255,255,255,frozen and 50 or 22},one)
+  elseif frozen then
+    fill(down and {46,108,160,205} or hover and {82,158,214,185} or {62,138,196,170})
+    fill({155,222,255,115},one)
+  elseif hover or down then
+    fill({255,255,255,down and 10 or 18})
+  end
+  local labels=frozen and {(s.freeze>1 and 'Frozen x'..s.freeze or 'Frozen'),'Frozen','Frz'} or {'Freeze','Frz'}
+  g.setfont(2)
+  local fx=math.max(0,F.x);local fw,fh=(F.x+F.w-fx)/sc,F.h/sc
+  local r=math.max(2.6,math.min(3.8,(fh-4)/2))
+  local iw=r*2+2.5
+  local label,show_icon=nil,true
+  for _,l in ipairs(labels) do
+    if g.measurestr(l)<=(fw-4-iw)*sc then label=l;break end
+  end
+  if not label then
+    show_icon=false;label=labels[#labels]
+    for _,l in ipairs(labels) do if g.measurestr(l)<=(fw-3)*sc then label=l;break end end
+  end
+  local tcol=frozen and {245,250,255} or colors.mcp_fx_normal or {205,210,215}
+  local icol=frozen and {235,248,255} or (luma(tcol)<=128 and {24,98,152} or {124,198,240})
+  -- Snowflake and label as one group in the middle of the face; the label's capitals, not its line, are centred on the face's height.
+  local tw=g.measurestr(label)
+  local gx=fx+(fw*sc-(tw+(show_icon and iw*sc or 0)))/2
+  if show_icon then self:snowflake(2*math.floor(gx+r*sc)+1,2*F.y+F.h,r,icol);gx=gx+iw*sc end
+  local top,ink_end=self:cap_ink()
+  g.setfont(2);g.set(tcol[1]/255,tcol[2]/255,tcol[3]/255,1)
+  g.x,g.y=math.floor(gx+.5),math.floor((2*F.y+F.h-top-ink_end)/2+.5)
+  local _,lh=g.measurestr(label)
+  g.drawstr(label,0,F.x+F.w,g.y+math.ceil(lh)+1);g.a=1 -- (cut at the face's end if even the shortest label is too wide)
+  return self:hit('freeze',x,y,w,hh,function() self:freeze_click(s) end,function() self:freeze_menu(s) end)
+end
 -- REAPER offers scripts no in-place text field, so renaming uses its small input dialog.
 function M:rename(s)
   local r=self.r;local current=self.model:track_name(s)
@@ -1828,7 +1987,7 @@ function M:lowerhz(s,W,H,c)
   if vh>=44 then
     local mx,mw=cx+2,cw/2-4
     image('meter_bg_mcp',mx,g.vm+2,mw,vh-4)
-    self:meter(s,{x=mx+.5,y=g.vm+2.5,w=mw-1,h=vh-5,font='main',scale_color={106,113,113},scale_fade=function(d) return 1-.85*(d-6)/48 end,readout_color={106,113,113},readout_y=-.5,first=6,last=54,step=12},c.colors) -- (the script's scale colours: tone10 at the top, tone8 at a quarter opacity at the bottom)
+    self:meter(s,{x=mx+.5,y=g.vm+2.5,w=mw-1,h=vh-5,font='main',glyph=4.75,scale_color={106,113,113},scale_fade=function(d) return 1-.85*(d-6)/48 end,readout_color={106,113,113},readout_y=-.5,first=6,last=54,step=12},c.colors) -- (the script's scale colours: tone10 at the top, tone8 at a quarter opacity at the bottom)
     local vx,vw=cx+cw/2,cw/2
     local bx,by,bw,bh=vx+1,g.vm+16,vw-1.5,vh-32
     self:rect(bx+bw/2-.5,by,1,bh,tone(1,{30,30,31}))
@@ -2108,7 +2267,8 @@ local OLDSEG={
   wt={track={cut={624,795},{0,5},{5,176,'top'},{176,204,'auto'},{204,250,'fx'},{250,259},{259,263,'*'},{263,273},{273,354,'mon'},{354,384,'rec'},{384,497},{497,874}},
     master={cut={624,866},{0,5},{5,176,'top'},{176,204,'auto'},{204,250,'fx'},{250,259},{259,263,'*'},{263,273},{273,384,'mon'},{384,497},{497,874}}},
   lcs={track={cut={800,1040},{0,5},{5,159,'top'},{159,173,'auto'},{173,214,'fx'},{214,444,'*'},{444,460,'top'},{460,544,'rec'},{544,670},{670,1048}},
-    master={cut={650,866},{0,5},{5,176,'top'},{176,204,'auto'},{204,250,'fx'},{250,259},{259,353,'*'},{353,356},{356,384,'mon'},{384,497},{497,874}}},
+    -- (`logo`: the art row where the master's printed logo starts, in the columns right of the fader; it hangs from the bottom, 748-832 of 874)
+    master={cut={650,866},logo=748,{0,5},{5,176,'top'},{176,204,'auto'},{204,250,'fx'},{250,259},{259,353,'*'},{353,356},{356,384,'mon'},{384,497},{497,874}}},
 }
 -- Like V5 the strip keeps the racks at three rows by shortening the fader first, then lets blocks go in the theme's order.
 function M:oldrows(s,H,W)
@@ -2180,6 +2340,23 @@ function M:oldback(s,H,W,g,c)
     else local cl=-bx;cols(1+cl,a.w-1-(g.Wd-W-cl),1,W-1) end
   end
   for _,l in ipairs(g.list) do put(l.a0,l.a1,l.y,l.h) end
+  -- The fader's cut is taken from the bottom of the ruler, where the master's logo is printed beside it: whatever of the logo the cut swallows is laid back,
+  -- hanging from the strip's bottom like the rest of the art below the cut, in the columns right of the fader (the fader's own columns stay cut).
+  local logo=g.segs.logo
+  if logo and g.k>0 then
+    local c0=math.max(g.segs.cut[1],g.segs.cut[2]-18*g.k);local c1=c0+18*g.k  -- the cut, and the first art row kept below it
+    local ly=H-(g.segs[#g.segs][2]-logo)                             -- where the logo's top lands
+    if c1>logo then
+      local v=g.o.volume[1];local keep=bm.clip
+      bm.clip={self:pxx(bx+v[1]+v[3]),self:pxx(W)}
+      g.logo_y=ly                                                 -- (the menu button's inert art, which the cut can lower onto the logo, then gives way)
+      if c0>logo then                                             -- the logo's top rows survive above a shallow cut: cover them with the plain rows above them
+        for _,l in ipairs(g.list) do if l.a1==c0 and l.a0<=logo then put(logo-(c0-logo),logo,l.y+(logo-l.a0),c0-logo) end end
+      end
+      put(logo,c1,ly,c1-logo)
+      bm.clip=keep
+    end
+  end
   if g.k>0 then                                                   -- the seam: spread the grey step the cut leaves over the rows below it
     local D=18*g.k;local c0=math.max(g.segs.cut[1],g.segs.cut[2]-D)
     for i,l in ipairs(g.list) do
@@ -2361,7 +2538,7 @@ function M:lowerold(s,W,H,c)
     local vy=g.Y(o.volume[1][2],true)
     if x then button('MONO',s.mono and 'mcp_mono' or 'mcp_stereo',x,y,w,vy and math.min(h,vy-y) or h,function() m:master_mono(s) end) end -- its art overhangs the fader's top: the fader keeps those rows
     x,y,w,h=place('menubutton')
-    if x then image('mixer_menu',x,y,w,h) end
+    if x and not (g.logo_y and y+h>g.logo_y) then image('mixer_menu',x,y,w,h) end
   end
   x,y,w,h=place('solo')
   if x then button('I_SOLO',s.I_SOLO~=0 and 'mcp_solo_on' or 'mcp_solo_off',x,y,w,h,function() m:toggle(s,'I_SOLO') end) end
@@ -2536,9 +2713,14 @@ function M:rtback(s,H,W,g,c)
     bm.clip=clip
   end
   -- track colour label bars (the SWS "set colour" buttons: inert here) in the theme's selected-track colour, the two black lines and the fixed line
-  if P('p8',0)<1 then
+  -- The master's two bands are not those buttons: its script draws the image `ci/mcp_masterlabelcolor` (one flat colour, the same red in all three
+  -- editions) over the top 15 pt and bottom 13 pt, whatever the 'track colour bars' setting says (the black lines then cover their outer rows).
+  if mt then
+    local red=bm and bm:tone('ci/mcp_masterlabelcolor') or {71,0,10}
+    self:rect(bx+1,3,78,12,red);self:rect(bx+1,H-17,78,13,red) -- (the script's `label` [0 0 79 15] and `label2` [0 942 79 13 0 1 0 1])
+  elseif P('p8',0)<1 then
     local bar=c.colors.col_seltrack or {19,53,95}
-    self:rect(bx+1,3,78,12,bar);self:rect(bx+1,H-17,78,12,mt and {71,0,10} or bar)
+    self:rect(bx+1,3,78,12,bar);self:rect(bx+1,H-17,78,12,bar)
   end
   self:rect(bx,0,80,4,{0,0,0});self:rect(bx,0,1,H-15,{0,0,0});self:rect(bx+79,0,1,H-15,{0,0,0});self:rect(bx,H-2,80,2,{0,0,0})
 end
@@ -2883,7 +3065,7 @@ function M:lowerpt(s,W,H,c)
   self.layout={T=g.ey,S=my,B=my+mh,L=H-g.ey,meter=true}
   self:rect(mx,my,mw,mh,{42,47,44});self:rect(mx+1,my+1,mw-2,6/68*mh+.75,{40,40,40});image('meter_custom_border',mx,my,mw,mh) -- (the part above 0 dB is neutral, the rest green-grey)
   local step=mh/68*6>=15 and 6 or 12
-  self:meter(s,{x=mx+1,y=my+1,w=mw-2,h=mh-2,font='bold',ticks=true,keep_scale=true,scale_color={132,136,134},readout_color={150,150,150},loudness_bg={40,40,40},loudness_color={255,255,255},readout=6/68*mh>=20,readout_y=math.max(1.5,3/68*mh-6.5),first=0,last=mt and 54 or 60,step=step,gap=nil},c.colors) -- (the readout sits centred above the 0 dB mark)
+  self:meter(s,{x=mx+1,y=my+1,w=mw-2,h=mh-2,font='bold',glyph=5.8,ticks=true,keep_scale=true,scale_color={132,136,134},readout_color={150,150,150},loudness_bg={40,40,40},loudness_color={255,255,255},readout=6/68*mh>=20,readout_y=math.max(1.5,3/68*mh-6.5),first=0,last=mt and 54 or 60,step=step,gap=nil},c.colors) -- (the readout sits centred above the 0 dB mark)
   local fx=mt and 8 or mx+mw+6
   if mt then fx=8+mex end
   local vy,vh=my,mh
@@ -3473,6 +3655,40 @@ function M:lowerd34(s,W,H,c)
   end
   self.layout={T=g.ey,S=fts or tp,B=fte or H,L=H-g.ey,meter=true}
 end
+-- The send volume knob of the two themes whose art the generic rule (the 6-style frame stack, beside the row's name) does not fit. REAPER puts one at the
+-- right end of every send row, an empty slot's at its minimum (measured in native strips, in the rows' own box). `send` is nil for an empty slot; `y` is the
+-- row's top, `W` the box's width. Returns the knob's left edge when it is drawn, so the name can stop short of it.
+--  - Horizon: its 95-frame stack, a 40 px frame fitted to the 9 pt list cell (the cell is a point shorter than the row), the frame by the send's level; a
+--    MIDI output shows the first frame. Centred 4.25 pt in from the row's end and 5 pt down (nearly flush: the frame is its cell's height).
+--  - Default 4.0: the disc `mcp_sendlist_knob_bg` at its own size, and the cap `mcp_sendlist_knob` (one marker at the top, a 22 px image fitted to the disc's
+--    width) turned by the level, +-150 degrees about the top (an empty slot's marker, at the minimum, measures 7 o'clock in the native strip; the maximum end
+--    of the sweep is assumed symmetric). 3.5 pt in from the end, 1 pt down. A MIDI output has none.
+--  - WT Imperial V5: the same art (a 11 x 14 pt disc and cap) flush with the row's inner end (1 pt in), centred in the row; measured from one native screenshot
+--    only (its siblings WT Imperial and Imperial LCS-mod ship the same art but were not measured, so they keep no knob).
+function M:send_knob(send,y,W,row)
+  local bm,th=self.bitmaps,self.theme
+  if not bm or not th then return nil end
+  local midi=send and send.kind=='midi'
+  local level=send and not midi and self.mapping.to_position(send.volume) or 0
+  -- An empty slot's (and Horizon's MIDI output's) knob is faint: about an eighth of the art's opacity (measured: Default 4.0's disc, 150-200 in the art, reads
+  -- 60 over the row's 47, a 0.125 mix; Horizon's dot reads 40 over 36). A real send's is drawn whole.
+  bm.alpha=(not send or midi) and .125 or nil
+  local x
+  if th.layout=='horizon' then
+    local size=row-1;local kx=W-4.25-size/2
+    if bm:knob_frame('mcp_send_knob_stack',level,kx+size/2+self.ox,y+(size+1)/2,self.scale,size) then x=kx end
+  elseif (th.layout=='default34' or th.layout=='imperial') and not midi then
+    local size,h=bm:size('mcp_sendlist_knob_bg',true)
+    if size then
+      x=W-(th.layout=='imperial' and 1 or 3.5)-size
+      local ky=y+(th.layout=='imperial' and (row-h)/2 or 1)
+      bm:draw('mcp_sendlist_knob_bg',0,x+self.ox,ky,nil,nil,self.scale,true)
+      bm:rotated('mcp_sendlist_knob',(2*level-1)*math.pi*5/6,x+self.ox,ky,size,self.scale)
+    end
+  end
+  bm.alpha=nil
+  return x
+end
 function M:strip(s,W,H)
   local bm=self.bitmaps
   local colors=self.theme and self.theme.colors or {}
@@ -3594,16 +3810,40 @@ function M:strip(s,W,H)
     local function backing(name) return bm:draw(name,0,self.ox,0,W,T+1,self.scale,true) end
     if not (selected and backing('mcp_extmixbgsel')) then backing('mcp_extmixbg') end
   end
-  local n=math.max(0,math.floor((T-(fm and 10 or 5)-Y0)/row)) -- Flat Madness's list backdrops end in 3 pt handles
-  if imp2 and ig.cap then n=math.min(n,ig.cap) end
-  local sendrows=n>=4 and math.max(1,math.floor(n*.25+(d34 and lg.d==3 and 0 or .5))) or n>=2 and 1 or 0 -- (Default 3.0's native rack, 30 rows: 23 inserts, so the sends take 7, not 8)
-  -- The last send-rack row is pinned to the track's own output (master/parent send); the master has none.
-  local outrow=not s.master and self.r.GetMasterTrack~=nil
-  if outrow and n>=3 then sendrows=math.max(2,sendrows) end
-  local fxrows=n-sendrows
-  if srow~=row then fxrows=math.max(0,math.floor((T-5-Y0-(frx and 3 or 0)-sendrows*srow)/row)) end -- theFRXST's racks end above its panel
-  if outrow and sendrows>0 then sendrows=sendrows-1 else outrow=false end
-  if s.master then sendrows=0;fxrows=n end -- the master strip shows inserts only
+  -- How many rows the racks get when `rt` pt of the box are kept below them. The last send-rack row is pinned to the
+  -- track's own output (master/parent send); the master has none.
+  local function plan(rt)
+    local n=math.max(0,math.floor((T-rt-(fm and 10 or 5)-Y0)/row)) -- Flat Madness's list backdrops end in 3 pt handles
+    if imp2 and ig.cap then n=math.min(n,ig.cap) end
+    local sendrows=n>=4 and math.max(1,math.floor(n*.25+(d34 and lg.d==3 and 0 or .5))) or n>=2 and 1 or 0 -- (Default 3.0's native rack, 30 rows: 23 inserts, so the sends take 7, not 8)
+    local outrow=not s.master and self.r.GetMasterTrack~=nil
+    if outrow and n>=3 then sendrows=math.max(2,sendrows) end
+    local fxrows=n-sendrows
+    if srow~=row then fxrows=math.max(0,math.floor((T-rt-5-Y0-(frx and 3 or 0)-sendrows*srow)/row)) end -- theFRXST's racks end above its panel
+    if outrow and sendrows>0 then sendrows=sendrows-1 else outrow=false end
+    if s.master then sendrows=0;fxrows=n end -- the master strip shows inserts only
+    return n,fxrows,sendrows,outrow
+  end
+  local n,fxrows,sendrows,outrow=plan(0)
+  -- The Freeze button (the inspected track's strip only) sits right under the pinned output row: in the spare room under
+  -- it when there is enough; else, in themes whose rack rows are free to follow the strip, in a row of its own taken from
+  -- the racks (only while they keep three rows, Default 3.0/4.0 four); else it shares the output row's line (Master/Parent
+  -- left, Frz/Freeze right). So it is always on screen and clickable, no rack drops below its minimum, no other control moves.
+  -- (Themes whose rack rows are measured against the script's own strip never give a row up.)
+  local fzmode
+  if outrow and not s.owner and not s.master then
+    local function oend(fx,sn) return Y0+fx*row+(fm and 0 or hz and 3 or .5)+(fm and 4.5 or hz and 4 or 3.5)+sn*srow+2+srow end
+    local minrows=d34 and 4 or 3
+    -- Whether a rack row is given up depends only on the row count, so the racks never lose a row as the strip grows.
+    if not (nv or hz or imp or rtl or ptl or rll or ec) and n>=minrows+2 then
+      local n2,f2,s2,o2=plan(row)
+      if o2 and f2+s2+1>=minrows then
+        n,fxrows,sendrows,outrow,fzmode=n2,f2,s2,o2,'row'
+      end
+    end
+    if not fzmode and oend(fxrows,sendrows)+(fm and 3 or 0)+srow-1<=T then fzmode='row' end -- the box's spare room holds a cell (less the clear point under its face)
+    fzmode=fzmode or 'share'
+  end
   -- A full rack scrolls one row past its last entry, so an empty slot to add into is always reachable.
   local function overflow(count,rows) return rows>0 and count>=rows and count-rows+1 or 0 end
   self.fx_offset=clamp(self.fx_offset,0,overflow(#s.fx,fxrows))
@@ -3663,6 +3903,15 @@ function M:strip(s,W,H)
     if fm then bm:draw('mcp_sendlist_bg',0,-1+self.ox,sy-.5,W-2,sendrows*srow+(outrow and srow+2 or 0)+.5,self.scale,true)
     else bm:draw('mcp_sendlist_bg',0,self.ox,sy,W,sendrows*srow,self.scale,true) end
   end
+  -- (V5's MIDI-output art is the one list cell drawn with a yellow overhang, 2 pt left and 4 pt right of its rect, where the normal cells keep their face
+  -- inside it: drawn whole it stands wider than the insert box, which the native strip does not show. Its rows are cut to the normal cells' face: from
+  -- their 2 pt of transparent margin to the rect's end.)
+  local keepclip=bm and bm.clip
+  if bm and imp and not imp2 then
+    local na=bm:get('mcp_sendlist_norm',true)
+    local k=na and self.scale/na.scale or 1
+    bm.clip={self:pxx(0)+math.floor(2*k+.5),self:pxx(W)}
+  end
   for i=1,sendrows do
     local send=s.sends[i+self.send_offset];local y=sy+(i-1)*srow
     local art=not send and 'mcp_sendlist_empty' or send.kind=='midi' and ((nv or ec or d34 or rtl) and 'mcp_sendlist_norm' or 'mcp_sendlist_midihw') or send.mute and 'mcp_sendlist_mute' or 'mcp_sendlist_norm'
@@ -3671,7 +3920,9 @@ function M:strip(s,W,H)
     if send then
       local c=send.kind=='midi' and col('mcp_send_midihw',{70,185,254}) or send.mute and col('mcp_sends_muted',{228,94,101}) or col('mcp_sends_normal',{254,207,103})
       local knob=send.kind~='midi' and not hz and not imp and not rtl and not ptl and not d34 and bm and bm:get('mcp_send_knob_stack')
-      self:text(send.name,nv and 1 or hz and 1.5 or imp and 3 or ptl and 3 or rtl and 16 or fm and 5 or rll and (d34 and 3 or 5) or ec and 4 or 6,y+(nv and .5 or -.5),rtl and W-21 or ptl and W-6 or W-14-(knob and 15 or 0),srow,c,'sends',0)
+      local sl=nv and 1 or hz and 1.5 or imp and 3 or ptl and 3 or rtl and 16 or fm and 5 or rll and (d34 and 3 or 5) or ec and 4 or 6
+      local kx=self:send_knob(send,y,W,srow) -- (Horizon and Default 4.0 only: their knob takes the row's right end, so the name stops short of it)
+      self:text(send.name,sl,y+(nv and .5 or -.5),kx and kx-1-sl or rtl and W-21 or ptl and W-6 or W-14-(knob and 15 or 0),srow,c,'sends',0)
       if knob then
         -- One square frame per level; resized smoothly because the rack row is smaller than a frame.
         local frames=math.max(1,math.floor(knob.h/knob.w))
@@ -3691,20 +3942,48 @@ function M:strip(s,W,H)
         self:rect(2.5,y+2,1.5,srow-4,c) -- marks the send whose destination the output strip shows
       end
     else
+      self:send_knob(nil,y,W,srow)
       self:hit('sendadd'..i,0,y,W,srow,function() self:show_routing(s) end,function() self:send_menu(s) end)
     end
   end
+  if bm then bm.clip=keepclip end
   self.send_box={x=RX,y=sy,w=W,h=sendrows*srow,rows=sendrows}
   if outrow then -- set apart from the sends: its own divider, centred neutral text, never scrolls
     local y=sy+sendrows*srow+2;local on=s.B_MAINSEND~=0
+    local share=fzmode=='share'
+    local OW=share and math.floor(W*.6) or W -- on short strips the Freeze button takes the right ~40% of this line
     self:rect(0,y-1.5,W,1,{255,255,255,40})
-    local hover=inside({x=0,y=y,w=W,h=srow},self.mx,self.my)
     local oart=on and (d34 and 'mcp_sendlist_norm' or 'mcp_fxlist_norm') or 'mcp_sendlist_mute' -- (Default 3.0/4.0: dressed as a send row, not as the dark insert beside it)
-    if nv then self:sprite(oart,hover and 1 or 0,0,y,W,srow) elseif hz or imp or rtl or ptl or rll or ec then self:sprite(oart,hover and 1 or 0,0,y,W,srow) elseif fm then self:sprite(oart,hover and 1 or 0,-1.5,y-1,W-1,srow) else self:sprite(oart,hover and 1 or 0,-1,y,W-2,srow) end
+    -- Where this theme's list art sits in a cell, as in the racks above. The Freeze button is one more cell of the same art, placed the
+    -- same way: its face then has this row's height, alignment and margins.
+    local dx,dy,dw=0,0,0
+    if fm then dx,dy,dw=-1.5,-1,-1 elseif not (nv or hz or imp or rtl or ptl or rll or ec) then dx,dw=-1,-2 end
+    -- Beside this row its art is moved so that 2 pt lie between the two faces (the art's own clear edges would leave more, or none),
+    -- and the two hit boxes meet half way between them.
+    local FX,FW,OH=OW+dx,W-OW+dw,OW
+    if share and bm then
+      local of=bm:face(oart,0,dx+self.ox,y+dy,OW+dw,srow,self.scale)
+      local ff=bm:face('mcp_fxlist_norm',0,FX+self.ox,y+dy,FW,srow,self.scale)
+      if of and ff then
+        local right=(self:pxx(dx)+of.x+of.w)/self.scale-self.ox
+        local d=clamp((self:pxx(FX)+ff.x)/self.scale-self.ox-right-2,-3,6)
+        FX,FW,OH=FX-d,FW+d,clamp(right+1,OW-8,OW+2)
+      end
+    end
+    local hover=inside({x=0,y=y,w=OH,h=srow},self.mx,self.my)
+    self:sprite(oart,hover and 1 or 0,dx,y+dy,OW+dw,srow)
     local c=on and (d34 and col('mcp_sends_normal',{254,207,103}) or col('mcp_fx_normal',{216,216,216})) or col('mcp_sends_muted',{228,94,101})
-    self:text(s.parent and 'Parent send' or 'Master send',hz and 1.5 or imp and 3 or ptl and 3 or rtl and 16 or 7.5,y-.5,hz and W-3 or imp and W-6 or ptl and W-6 or rtl and W-21 or W-19.5,srow,c,'list',(hz or imp or rtl or ptl) and 0 or 1)
+    local otext=s.parent and (share and 'Parent' or 'Parent send') or (share and 'Master' or 'Master send')
+    local ol=hz and 1.5 or imp and 3 or ptl and 3 or rtl and 16 or 7.5
+    local owid=hz and W-3 or imp and W-6 or ptl and W-6 or rtl and W-21 or W-19.5
+    if share then ol=math.min(ol,3);owid=OW-ol-2 end
+    self:text(otext,ol,y-.5,owid,srow,c,'list',(hz or imp or rtl or ptl) and 0 or 1)
     if not s.owner and self.root.shown_main then self:rect(2.5,y+2,1.5,srow-4,c) end
-    self:hit('output',0,y,W,srow,function() if not s.owner then self.root.choice[s.guid]=nil end end,function() self:output_menu(s) end)
+    self:hit('output',0,y,OH,srow,function() if not s.owner then self.root.choice[s.guid]=nil end end,function() self:output_menu(s) end)
+    -- (beside the row: Default 3.0's mute and solo start half a point above the racks' end, which this row can pass. Under it: the next
+    -- cell down, Flat Madness's under the handle its backdrop ends in.)
+    if share then self:freeze_button(s,OH,y,W-OH,srow,{ax=FX,aw=FW,dy=dy,bottom=d34 and lg.d==3 and T-.5 or nil})
+    elseif fzmode=='row' then self:freeze_button(s,0,y+srow+(fm and 3 or 0),W,srow,{ax=dx,aw=W+dw,dy=dy,bottom=T,fit=true}) end
   end
   scrollbar('send_bar',#s.sends,sendrows,self.send_offset,sy,srow)
 
@@ -3969,7 +4248,15 @@ function M:meter(s,m,colors)
   self.g.setfont(mi)
   local function fits(t,w) return self.g.measurestr(t)/self.scale<=w end
   local l,r_=peaktext(self.chpeak[1]),peaktext(self.chpeak[2])
-  if m.readout==false then
+  -- The state icon REAPER sets at the meter's top (`glyph` = the art's centre this far below the well's top, for the themes that ship it; measured in each
+  -- theme's native strip): a red slashed speaker when the track is muted, a yellow one when another track's solo silences it (some track is soloed and this
+  -- one is not). It takes the peak readout's place (the native strip shows one or the other).
+  local gname=m.glyph and self.bitmaps and (s.B_MUTE~=0 and 'meter_mute' or s.anysolo and s.I_SOLO==0 and not s.master and 'meter_unsolo') or nil
+  local gw,gh=nil,nil
+  if gname then gw,gh=self.bitmaps:size(gname,true) end
+  if gw then self.bitmaps:draw(gname,0,m.x+(m.w-gw)/2+self.ox,m.y+m.glyph-gh/2,nil,nil,self.scale,true) end
+  if gw then
+  elseif m.readout==false then
   elseif s.master and fits(l,m.w/2-2) and fits(r_,m.w/2-2) then
     -- The master meter reads each channel's peak separately, and its loudness at the bottom.
     self:text(l,m.x,ry,m.w/2,13,self.chpeak[1]>1 and {255,183,171} or rc,mf,1)
