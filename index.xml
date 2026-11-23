@@ -64,6 +64,16 @@
         <source file="inspector/unzip.lua">https://github.com/jamiethemorris/reaper-inspector/raw/v0.7.0/inspector/unzip.lua</source>
         <source file="inspector/view.lua">https://github.com/jamiethemorris/reaper-inspector/raw/v0.7.0/inspector/view.lua</source>
       </version>
+      <version name="0.8.0" author="jamiethemorris" time="2026-11-23T05:00:00Z">
+        <changelog><![CDATA[Added a theme-matched Freeze button (with snowflake icon and icy-blue frozen state) on the inspected track: left-click freezes to stereo (or FeedTheCat's Smart-freeze when enabled and installed) and unfreezes when frozen; right-click offers stereo, mono, multichannel, FTC Smart-freeze + settings, unfreeze, and a remembered Smart-freeze default checkbox. Cosmetic fixes: send knobs on Default 4.0, Horizon, WT Imperial V5, and WT Imperial; Horizon & paRt mute/unsolo meter icons; WT Imperial V5 send-row alignment; Imperial LCS-mod master logo; ReaTools master accent bands; centered Master/Parent send label.]]></changelog>
+        <source main="main">https://github.com/jamiethemorris/reaper-inspector/raw/v0.8.0/Reaper%20Inspector.lua</source>
+        <source file="inspector/app.lua">https://github.com/jamiethemorris/reaper-inspector/raw/v0.8.0/inspector/app.lua</source>
+        <source file="inspector/bitmaps.lua">https://github.com/jamiethemorris/reaper-inspector/raw/v0.8.0/inspector/bitmaps.lua</source>
+        <source file="inspector/model.lua">https://github.com/jamiethemorris/reaper-inspector/raw/v0.8.0/inspector/model.lua</source>
+        <source file="inspector/theme.lua">https://github.com/jamiethemorris/reaper-inspector/raw/v0.8.0/inspector/theme.lua</source>
+        <source file="inspector/unzip.lua">https://github.com/jamiethemorris/reaper-inspector/raw/v0.8.0/inspector/unzip.lua</source>
+        <source file="inspector/view.lua">https://github.com/jamiethemorris/reaper-inspector/raw/v0.8.0/inspector/view.lua</source>
+      </version>
     </reapack>
   </category>
   <metadata>

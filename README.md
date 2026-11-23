@@ -2,7 +2,7 @@
 
 A dockable, single-selected-track Lua `gfx` inspector, independent of REAPER's mixer. Runtime dependencies: REAPER's built-in Lua/ReaScript and `gfx` only. No ReaImGui, SWS, JS extension, package installation, action registration by the script, or theme installation.
 
-**Verification status (0.7.0):** each hand-made theme family has been checked in REAPER on macOS (at least one representative edition per family; secondary colour editions and some pan modes were checked offline only via `tests/preview.py`). All 67 offline synthetic-host tests pass. Non-macOS Retina paths and a live ReaPack install remain unverified.
+**Verification status (0.8.0):** each hand-made theme family and the Freeze button have been checked in REAPER on macOS (at least one representative edition per family; secondary colour editions and some pan modes were checked offline only via `tests/preview.py`). All 74 offline synthetic-host tests pass. Non-macOS Retina paths and a live ReaPack install remain unverified.
 
 ## Install
 
